@@ -1,0 +1,1229 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Observabilidad en Kubernetes: Flujo de Señales</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN for live simulated metric charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        k8s: '#326CE5',
+                        metric: '#10B981', // Emerald green
+                        trace: '#06B6D4',  // Cyan
+                        log: '#F59E0B',    // Amber/Orange
+                        error: '#EF4444',  // Red
+                        darkbg: '#0B0F17',
+                        cardbg: '#161B22',
+                        borderbg: '#21262D'
+                    },
+                    fontFamily: {
+                        mono: ['JetBrains Mono', 'Fira Code', 'Monaco', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0B0F17;
+            color: #C9D1D9;
+            overflow-x: hidden;
+        }
+
+        /* Custom scrollbar for technical code panels */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0D1117;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #30363D;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #484F58;
+        }
+
+        /* Pulse glow animations */
+        .glow-metric { filter: drop-shadow(0 0 6px rgba(16, 185, 129, 0.6)); }
+        .glow-trace { filter: drop-shadow(0 0 6px rgba(6, 182, 212, 0.6)); }
+        .glow-log { filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.6)); }
+        .glow-error { filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.8)); }
+
+        .node-card {
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+        }
+        .node-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.5);
+        }
+        .node-card.active {
+            border-color: #38BDF8 !important;
+            box-shadow: 0 0 15px rgba(56, 189, 248, 0.25);
+        }
+
+        .bg-grid-pattern {
+            background-size: 30px 30px;
+            background-image: 
+                linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+        }
+    </style>
+</head>
+<body class="bg-darkbg text-gray-200 min-h-screen flex flex-col justify-between selection:bg-cyan-500 selection:text-black">
+
+    <!-- HEADER NAVBAR -->
+    <header class="border-b border-borderbg bg-cardbg/80 backdrop-blur sticky top-0 z-50 px-4 lg:px-8 py-3.5">
+        <div class="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <div class="p-2 bg-k8s/10 rounded-lg border border-k8s/30 text-k8s">
+                    <i data-lucide="boxes" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold text-white tracking-wide flex items-center gap-2">
+                        Observabilidad en Kubernetes
+                        <span class="text-xs font-semibold px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">K8s Cluster Simulation</span>
+                    </h1>
+                    <p class="text-xs text-gray-400">Flujo interactivo de Métricas, Trazas y Logs con OpenTelemetry, Prometheus y Fluentd</p>
+                </div>
+            </div>
+
+            <!-- Global Stats / Cluster Status Indicator -->
+            <div class="flex items-center gap-4 text-xs font-mono bg-darkbg/80 px-4 py-2 rounded-lg border border-borderbg">
+                <div class="flex items-center gap-2">
+                    <span id="clusterStatusDot" class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span id="clusterStatusText" class="text-gray-300 font-medium">ESTADO: NORMAL</span>
+                </div>
+                <div class="h-4 w-px bg-borderbg"></div>
+                <div>
+                    <span class="text-gray-500">REQ/S:</span>
+                    <span id="statRps" class="text-cyan-400 font-bold ml-1">120</span>
+                </div>
+                <div class="h-4 w-px bg-borderbg"></div>
+                <div>
+                    <span class="text-gray-500">ERR RATE:</span>
+                    <span id="statErr" class="text-emerald-400 font-bold ml-1">0.00%</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- TOOLBAR & CONTROLS -->
+    <main class="max-w-7xl w-full mx-auto px-4 lg:px-8 py-6 flex-grow flex flex-col gap-6">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center bg-cardbg p-4 rounded-xl border border-borderbg shadow-lg">
+            
+            <!-- Signal Filters -->
+            <div class="lg:col-span-6 flex flex-wrap items-center gap-2">
+                <span class="text-xs font-bold text-gray-400 uppercase tracking-wider mr-2 flex items-center gap-1">
+                    <i data-lucide="filter" class="w-3.5 h-3.5"></i> Filtrar Señal:
+                </span>
+                <button onclick="setSignalFilter('all')" id="btnFilterAll" class="px-3 py-1.5 text-xs font-medium rounded-lg border transition-all bg-k8s/20 border-k8s text-white">
+                    Todas las Señales
+                </button>
+                <button onclick="setSignalFilter('metrics')" id="btnFilterMetrics" class="px-3 py-1.5 text-xs font-medium rounded-lg border border-borderbg text-gray-400 hover:text-emerald-400 hover:border-emerald-500/50 transition-all flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-metric"></span> Métricas (Prometheus)
+                </button>
+                <button onclick="setSignalFilter('traces')" id="btnFilterTraces" class="px-3 py-1.5 text-xs font-medium rounded-lg border border-borderbg text-gray-400 hover:text-cyan-400 hover:border-cyan-500/50 transition-all flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-trace"></span> Trazas (OTel)
+                </button>
+                <button onclick="setSignalFilter('logs')" id="btnFilterLogs" class="px-3 py-1.5 text-xs font-medium rounded-lg border border-borderbg text-gray-400 hover:text-amber-400 hover:border-amber-500/50 transition-all flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-log"></span> Logs (Fluentd)
+                </button>
+            </div>
+
+            <!-- Scenario Simulator Buttons -->
+            <div class="lg:col-span-6 flex flex-wrap items-center justify-start lg:justify-end gap-2 border-t lg:border-t-0 pt-3 lg:pt-0 border-borderbg">
+                <span class="text-xs font-bold text-gray-400 uppercase tracking-wider mr-2 flex items-center gap-1">
+                    <i data-lucide="play-circle" class="w-3.5 h-3.5"></i> Simulación:
+                </span>
+                <button onclick="runScenario('normal')" id="btnScenNormal" class="px-3 py-1.5 text-xs font-medium rounded-lg border border-emerald-500/50 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 transition-all">
+                    Tráfico Normal
+                </button>
+                <button onclick="runScenario('spike')" id="btnScenSpike" class="px-3 py-1.5 text-xs font-medium rounded-lg border border-amber-500/50 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 transition-all">
+                    Pico de Tráfico
+                </button>
+                <button onclick="runScenario('error')" id="btnScenError" class="px-3 py-1.5 text-xs font-medium rounded-lg border border-red-500/50 bg-red-500/10 text-red-300 hover:bg-red-500/20 transition-all">
+                    Incidente 500 Error
+                </button>
+                
+                <!-- Speed / Animation Pause -->
+                <button onclick="toggleAnimationPause()" id="btnPause" class="p-1.5 text-xs font-medium rounded-lg border border-borderbg bg-darkbg text-gray-300 hover:text-white transition-all ml-1" title="Pausar/Reanudar Animación">
+                    <i data-lucide="pause" id="pauseIcon" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- ARCHITECTURE CANVAS CONTAINER -->
+        <div class="relative bg-cardbg rounded-2xl border border-borderbg p-6 overflow-hidden bg-grid-pattern min-h-[560px] flex flex-col justify-between">
+            
+            <!-- SVG Overlay for Animated Signal Particles -->
+            <svg id="signalSvg" class="absolute inset-0 w-full h-full pointer-events-none z-10" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <!-- Flow Gradients -->
+                    <linearGradient id="gradMetric" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stop-color="#10B981" stop-opacity="0.2"/>
+                        <stop offset="100%" stop-color="#10B981" stop-opacity="0.8"/>
+                    </linearGradient>
+                    <linearGradient id="gradTrace" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stop-color="#06B6D4" stop-opacity="0.2"/>
+                        <stop offset="100%" stop-color="#06B6D4" stop-opacity="0.8"/>
+                    </linearGradient>
+                    <linearGradient id="gradLog" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.2"/>
+                        <stop offset="100%" stop-color="#F59E0B" stop-opacity="0.8"/>
+                    </linearGradient>
+                </defs>
+                <!-- Dynamic connection paths will be calculated and rendered here -->
+                <g id="svgPipes"></g>
+                <g id="svgParticles"></g>
+            </svg>
+
+            <!-- KUBERNETES CLUSTER LAYOUT (3 PIPELINE LAYERS) -->
+            <div class="relative z-20 grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8 items-stretch h-full">
+
+                <!-- LAYER 1: PODS & WORKLOADS -->
+                <div class="flex flex-col justify-between space-y-4">
+                    <div class="flex items-center gap-2 pb-2 border-b border-borderbg/80">
+                        <span class="w-2.5 h-2.5 rounded-full bg-k8s"></span>
+                        <h2 class="text-xs font-bold tracking-widest text-gray-400 uppercase">Capas de Trabajo / Pods</h2>
+                        <span class="text-[10px] bg-k8s/20 text-k8s px-1.5 py-0.5 rounded font-mono ml-auto">K8s Namespace: prod</span>
+                    </div>
+
+                    <!-- Pod 1: Frontend Services -->
+                    <div id="node-pod-frontend" onclick="selectNode('pod-frontend')" class="node-card active bg-darkbg/90 border border-borderbg rounded-xl p-4 flex flex-col justify-between">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center gap-2">
+                                <i data-lucide="layout" class="w-4 h-4 text-cyan-400"></i>
+                                <span class="font-bold text-sm text-white">pod/frontend-app</span>
+                            </div>
+                            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Running</span>
+                        </div>
+                        <p class="text-xs text-gray-400 mb-3">Genera trazas OTLP, logs stdout en formato JSON y `/metrics` Prometheus.</p>
+                        <div class="flex items-center gap-2 text-[10px] font-mono text-gray-400">
+                            <span class="px-1.5 py-0.5 rounded bg-gray-800 border border-gray-700">OTel SDK</span>
+                            <span class="px-1.5 py-0.5 rounded bg-gray-800 border border-gray-700">Port 8080</span>
+                        </div>
+                    </div>
+
+                    <!-- Pod 2: Payment API Service -->
+                    <div id="node-pod-payment" onclick="selectNode('pod-payment')" class="node-card bg-darkbg/90 border border-borderbg rounded-xl p-4 flex flex-col justify-between">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center gap-2">
+                                <i data-lucide="credit-card" class="w-4 h-4 text-amber-400"></i>
+                                <span class="font-bold text-sm text-white">pod/payment-api</span>
+                            </div>
+                            <span id="podPaymentStatus" class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Running</span>
+                        </div>
+                        <p class="text-xs text-gray-400 mb-3">Procesa transacciones. Propaga contexto HTTP W3C Trace Context.</p>
+                        <div class="flex items-center gap-2 text-[10px] font-mono text-gray-400">
+                            <span class="px-1.5 py-0.5 rounded bg-gray-800 border border-gray-700">gRPC/HTTP</span>
+                            <span class="px-1.5 py-0.5 rounded bg-gray-800 border border-gray-700">Port 9090</span>
+                        </div>
+                    </div>
+
+                    <!-- Pod 3: Database Container -->
+                    <div id="node-pod-db" onclick="selectNode('pod-db')" class="node-card bg-darkbg/90 border border-borderbg rounded-xl p-4 flex flex-col justify-between">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center gap-2">
+                                <i data-lucide="database" class="w-4 h-4 text-emerald-400"></i>
+                                <span class="font-bold text-sm text-white">pod/postgres-db</span>
+                            </div>
+                            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Running</span>
+                        </div>
+                        <p class="text-xs text-gray-400 mb-3">Expositor de métricas Postgres Exporter. Logs estructurados de SQL query.</p>
+                        <div class="flex items-center gap-2 text-[10px] font-mono text-gray-400">
+                            <span class="px-1.5 py-0.5 rounded bg-gray-800 border border-gray-700">Exporter</span>
+                            <span class="px-1.5 py-0.5 rounded bg-gray-800 border border-gray-700">Port 5432</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LAYER 2: COLLECTION & AGGREGATION AGENTS -->
+                <div class="flex flex-col justify-between space-y-4">
+                    <div class="flex items-center gap-2 pb-2 border-b border-borderbg/80">
+                        <span class="w-2.5 h-2.5 rounded-full bg-cyan-400"></span>
+                        <h2 class="text-xs font-bold tracking-widest text-gray-400 uppercase">Recolectores & Agentes</h2>
+                        <span class="text-[10px] bg-cyan-500/20 text-cyan-400 px-1.5 py-0.5 rounded font-mono ml-auto">DaemonSet & Deploy</span>
+                    </div>
+
+                    <!-- Collector 1: OpenTelemetry Collector -->
+                    <div id="node-agent-otel" onclick="selectNode('agent-otel')" class="node-card bg-darkbg/90 border border-borderbg rounded-xl p-4 flex flex-col justify-between">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center gap-2">
+                                <div class="p-1.5 bg-cyan-500/10 rounded text-cyan-400 border border-cyan-500/30">
+                                    <i data-lucide="cpu" class="w-4 h-4"></i>
+                                </div>
+                                <span class="font-bold text-sm text-white">OpenTelemetry Collector</span>
+                            </div>
+                            <span class="text-[10px] font-mono text-cyan-400 bg-cyan-950/60 border border-cyan-800 px-1.5 py-0.5 rounded">OTLP / gRPC</span>
+                        </div>
+                        <p class="text-xs text-gray-400 mb-3">Recibe trazas/métricas en puerto 4317. Pipeline: Receivers ➔ Processors ➔ Exporters.</p>
+                        <div class="flex items-center gap-2 text-[10px] font-mono text-cyan-300">
+                            <span class="px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-800/80">batch</span>
+                            <span class="px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-800/80">memory_limiter</span>
+                        </div>
+                    </div>
+
+                    <!-- Collector 2: Prometheus Agent / Server Scraping -->
+                    <div id="node-agent-prom" onclick="selectNode('agent-prom')" class="node-card bg-darkbg/90 border border-borderbg rounded-xl p-4 flex flex-col justify-between">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center gap-2">
+                                <div class="p-1.5 bg-emerald-500/10 rounded text-emerald-400 border border-emerald-500/30">
+                                    <i data-lucide="activity" class="w-4 h-4"></i>
+                                </div>
+                                <span class="font-bold text-sm text-white">Prometheus Agent</span>
+                            </div>
+                            <span class="text-[10px] font-mono text-emerald-400 bg-emerald-950/60 border border-emerald-800 px-1.5 py-0.5 rounded">Pull Model</span>
+                        </div>
+                        <p class="text-xs text-gray-400 mb-3">Scrapea endpoints `/metrics` periódicamente utilizando K8s Service Discovery.</p>
+                        <div class="flex items-center gap-2 text-[10px] font-mono text-emerald-300">
+                            <span class="px-1.5 py-0.5 rounded bg-emerald-950/80 border border-emerald-800/80">interval: 15s</span>
+                            <span class="px-1.5 py-0.5 rounded bg-emerald-950/80 border border-emerald-800/80">relabel_configs</span>
+                        </div>
+                    </div>
+
+                    <!-- Collector 3: Fluentd DaemonSet -->
+                    <div id="node-agent-fluentd" onclick="selectNode('agent-fluentd')" class="node-card bg-darkbg/90 border border-borderbg rounded-xl p-4 flex flex-col justify-between">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center gap-2">
+                                <div class="p-1.5 bg-amber-500/10 rounded text-amber-400 border border-amber-500/30">
+                                    <i data-lucide="file-text" class="w-4 h-4"></i>
+                                </div>
+                                <span class="font-bold text-sm text-white">Fluentd DaemonSet</span>
+                            </div>
+                            <span class="text-[10px] font-mono text-amber-400 bg-amber-950/60 border border-amber-800 px-1.5 py-0.5 rounded">Tail Log</span>
+                        </div>
+                        <p class="text-xs text-gray-400 mb-3">Lee archivos físicos `/var/log/containers/*`. Parsea JSON, enriquece con metadata de K8s.</p>
+                        <div class="flex items-center gap-2 text-[10px] font-mono text-amber-300">
+                            <span class="px-1.5 py-0.5 rounded bg-amber-950/80 border border-amber-800/80">in_tail</span>
+                            <span class="px-1.5 py-0.5 rounded bg-amber-950/80 border border-amber-800/80">filter_kubernetes</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LAYER 3: STORAGE BACKENDS & GRAFANA UNIFIED DASHBOARD -->
+                <div class="flex flex-col justify-between space-y-4">
+                    <div class="flex items-center gap-2 pb-2 border-b border-borderbg/80">
+                        <span class="w-2.5 h-2.5 rounded-full bg-purple-400"></span>
+                        <h2 class="text-xs font-bold tracking-widest text-gray-400 uppercase">Almacenamiento & Visualización</h2>
+                        <span class="text-[10px] bg-purple-500/20 text-purple-400 px-1.5 py-0.5 rounded font-mono ml-auto">Backend DBs</span>
+                    </div>
+
+                    <!-- Backend Storage Nodes Grid -->
+                    <div class="grid grid-cols-1 gap-3">
+                        <!-- Jaeger / Tempo -->
+                        <div id="node-store-tempo" onclick="selectNode('store-tempo')" class="node-card bg-darkbg/90 border border-borderbg rounded-xl p-3 flex items-center justify-between">
+                            <div class="flex items-center gap-2.5">
+                                <i data-lucide="git-commit" class="w-4 h-4 text-cyan-400"></i>
+                                <div>
+                                    <h3 class="text-xs font-bold text-white">Jaeger / Tempo</h3>
+                                    <p class="text-[10px] text-gray-400">Distributed Tracing TSDB</p>
+                                </div>
+                            </div>
+                            <span class="text-[10px] font-mono text-cyan-400">Trazas</span>
+                        </div>
+
+                        <!-- Prometheus TSDB -->
+                        <div id="node-store-prom" onclick="selectNode('store-prom')" class="node-card bg-darkbg/90 border border-borderbg rounded-xl p-3 flex items-center justify-between">
+                            <div class="flex items-center gap-2.5">
+                                <i data-lucide="bar-chart-2" class="w-4 h-4 text-emerald-400"></i>
+                                <div>
+                                    <h3 class="text-xs font-bold text-white">Prometheus Server</h3>
+                                    <p class="text-[10px] text-gray-400">Metrics Time-Series Database</p>
+                                </div>
+                            </div>
+                            <span class="text-[10px] font-mono text-emerald-400">Métricas</span>
+                        </div>
+
+                        <!-- Elasticsearch / OpenSearch -->
+                        <div id="node-store-es" onclick="selectNode('store-es')" class="node-card bg-darkbg/90 border border-borderbg rounded-xl p-3 flex items-center justify-between">
+                            <div class="flex items-center gap-2.5">
+                                <i data-lucide="search" class="w-4 h-4 text-amber-400"></i>
+                                <div>
+                                    <h3 class="text-xs font-bold text-white">Elasticsearch / Loki</h3>
+                                    <p class="text-[10px] text-gray-400">Log Index & Search Storage</p>
+                                </div>
+                            </div>
+                            <span class="text-[10px] font-mono text-amber-400">Logs</span>
+                        </div>
+                    </div>
+
+                    <!-- Grafana Unified Interface -->
+                    <div id="node-grafana" onclick="selectNode('grafana')" class="node-card bg-gradient-to-br from-darkbg via-cardbg to-purple-950/30 border border-purple-500/40 rounded-xl p-4 flex flex-col justify-between">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center gap-2">
+                                <div class="p-1.5 bg-purple-500/20 rounded text-purple-300 border border-purple-500/40">
+                                    <i data-lucide="layout-dashboard" class="w-5 h-5"></i>
+                                </div>
+                                <div>
+                                    <span class="font-bold text-sm text-white">Grafana Dashboard</span>
+                                    <p class="text-[10px] text-purple-300">Visualización Unificada Correlacionada</p>
+                                </div>
+                            </div>
+                            <span class="text-[10px] font-mono text-purple-300 bg-purple-950 border border-purple-800 px-2 py-0.5 rounded">Exemplars</span>
+                        </div>
+                        <p class="text-xs text-gray-400 mb-2">Correlaciona métricas Spike con Trazas ID y Logs exactos mediante TraceID/SpanID.</p>
+                        <div class="text-[11px] text-purple-400 flex items-center gap-1 font-mono">
+                            <span>PromQL + TraceQL + LogQL</span>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <!-- TECHNICAL INSPECTOR & PAYLOAD EXPLORER -->
+        <div id="inspectorPanel" class="bg-cardbg border border-borderbg rounded-2xl p-6 shadow-xl">
+            <!-- Inspector Header -->
+            <div class="flex flex-col md:flex-row md:items-center justify-between pb-4 mb-6 border-b border-borderbg gap-4">
+                <div class="flex items-center gap-3">
+                    <div id="inspectorIconContainer" class="p-2.5 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">
+                        <i data-lucide="cpu" id="inspectorIcon" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h2 id="inspectorTitle" class="text-lg font-bold text-white">pod/frontend-app</h2>
+                            <span id="inspectorTypeBadge" class="text-xs font-mono px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">Kubernetes Pod</span>
+                        </div>
+                        <p id="inspectorSubtitle" class="text-xs text-gray-400 mt-0.5">Componente de origen de telemetría distribuida</p>
+                    </div>
+                </div>
+
+                <!-- Tabs selector -->
+                <div class="flex items-center gap-1 bg-darkbg p-1 rounded-lg border border-borderbg">
+                    <button onclick="switchTab('overview')" id="tabBtnOverview" class="px-3 py-1.5 text-xs font-medium rounded-md bg-cardbg text-white border border-borderbg">
+                        Vista General
+                    </button>
+                    <button onclick="switchTab('config')" id="tabBtnConfig" class="px-3 py-1.5 text-xs font-medium rounded-md text-gray-400 hover:text-white transition-all">
+                        Configuración YAML/Conf
+                    </button>
+                    <button onclick="switchTab('payload')" id="tabBtnPayload" class="px-3 py-1.5 text-xs font-medium rounded-md text-gray-400 hover:text-white transition-all">
+                        Payload Telemetría En Vivo
+                    </button>
+                </div>
+            </div>
+
+            <!-- Tab Content Area -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                
+                <!-- TAB 1: OVERVIEW & LIVE CHARTS -->
+                <div id="tabContentOverview" class="lg:col-span-12 grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    <div class="lg:col-span-5 space-y-4">
+                        <h3 class="text-xs font-bold uppercase tracking-wider text-gray-400">Descripción del Rol Técnico</h3>
+                        <p id="inspectorDescription" class="text-sm text-gray-300 leading-relaxed">
+                            Servicio Node.js/React de cara al usuario final. Emite trazas distributed W3C TraceContext a través del SDK de OpenTelemetry en puerto 4317 (OTLP gRPC).
+                        </p>
+
+                        <div class="space-y-2 pt-2">
+                            <h4 class="text-xs font-bold text-gray-400">Atributos de Telemetría:</h4>
+                            <div id="inspectorAttributes" class="space-y-1.5 font-mono text-xs">
+                                <!-- Attributes dynamic rendering -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Live Simulated Sparkline / Chart -->
+                    <div class="lg:col-span-7 bg-darkbg rounded-xl border border-borderbg p-4 flex flex-col justify-between">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-xs font-bold font-mono text-gray-300 flex items-center gap-2">
+                                <i data-lucide="activity" class="w-4 h-4 text-emerald-400"></i> Métricas en Tiempo Real (Simulado)
+                            </span>
+                            <span class="text-[10px] text-gray-500 font-mono">Actualizado cada 1s</span>
+                        </div>
+                        <div class="h-48 w-full relative">
+                            <canvas id="liveChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 2: CONFIGURATION FILE (YAML / CONF) -->
+                <div id="tabContentConfig" class="lg:col-span-12 hidden">
+                    <div class="flex items-center justify-between bg-darkbg px-4 py-2 rounded-t-xl border border-borderbg border-b-0">
+                        <span id="configFileName" class="text-xs font-mono text-cyan-400">otel-collector-config.yaml</span>
+                        <button onclick="copyCode('configCode')" class="text-xs text-gray-400 hover:text-white flex items-center gap-1 font-mono">
+                            <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copiar
+                        </button>
+                    </div>
+                    <pre class="bg-darkbg/90 border border-borderbg p-4 rounded-b-xl text-xs font-mono text-emerald-300 overflow-x-auto max-h-80"><code id="configCode">
+# Configuración OTel Collector
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+                    </code></pre>
+                </div>
+
+                <!-- TAB 3: TELEMETRY RAW PAYLOAD (JSON/TEXT) -->
+                <div id="tabContentPayload" class="lg:col-span-12 hidden">
+                    <div class="flex items-center justify-between bg-darkbg px-4 py-2 rounded-t-xl border border-borderbg border-b-0">
+                        <span id="payloadFileName" class="text-xs font-mono text-amber-400">otlp_span_trace_sample.json</span>
+                        <button onclick="copyCode('payloadCode')" class="text-xs text-gray-400 hover:text-white flex items-center gap-1 font-mono">
+                            <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copiar Payload
+                        </button>
+                    </div>
+                    <pre class="bg-darkbg/90 border border-borderbg p-4 rounded-b-xl text-xs font-mono text-cyan-300 overflow-x-auto max-h-80"><code id="payloadCode">
+{
+  "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "spanId": "00f067aa0ba902b7",
+  "name": "GET /api/v1/checkout",
+  "kind": "SPAN_KIND_SERVER",
+  "status": { "code": "STATUS_CODE_OK" }
+}
+                    </code></pre>
+                </div>
+
+            </div>
+        </div>
+    </main>
+
+    <!-- FOOTER -->
+    <footer class="border-t border-borderbg py-4 text-center text-xs text-gray-500 font-mono mt-8">
+        Infografía Técnica Interactiva — Observabilidad K8s (Prometheus, OpenTelemetry, Fluentd)
+    </footer>
+
+    <script>
+        // --- DATA DICTIONARIES FOR NODES & TECHNICAL DETAILS ---
+        const nodeDetails = {
+            'pod-frontend': {
+                title: 'pod/frontend-app',
+                type: 'Kubernetes Pod Workload',
+                icon: 'layout',
+                colorClass: 'cyan',
+                subtitle: 'Contenedor Frontend (React / Node.js Express)',
+                description: 'Recibe tráfico web directo de usuarios. Genera trazas OTel propagando el header `traceparent`, registra logs estructurados JSON a stdout y expone métricas en `/metrics`.',
+                attributes: [
+                    { k: 'k8s.pod.name', v: 'frontend-app-789bfb-x82l9' },
+                    { k: 'service.name', v: 'frontend-service' },
+                    { k: 'telemetry.sdk.language', v: 'nodejs' },
+                    { k: 'http.target', v: '/api/v1/checkout' }
+                ],
+                configName: 'deployment-frontend.yaml',
+                config: `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-app
+  namespace: prod
+spec:
+  replicas: 3
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+    spec:
+      containers:
+      - name: frontend
+        image: company/frontend:v2.4.0
+        env:
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "http://otel-collector:4317"`,
+                payloadName: 'otlp_span_frontend.json',
+                payload: `{
+  "trace_id": "8a32b91f0a2d4809bc12e87a",
+  "span_id": "1f0a2d4809bc",
+  "parent_span_id": null,
+  "name": "HTTP GET /checkout",
+  "kind": "SERVER",
+  "attributes": {
+    "http.method": "GET",
+    "http.status_code": 200,
+    "http.url": "https://app.domain.com/checkout"
+  },
+  "timestamp": 1727730000000
+}`
+            },
+            'pod-payment': {
+                title: 'pod/payment-api',
+                type: 'Kubernetes Microservice',
+                icon: 'credit-card',
+                colorClass: 'amber',
+                subtitle: 'API Backend de Pagos (Go)',
+                description: 'Servicio crítico de backend. Procesa transacciones con pasarelas de pago. En caso de timeout o falla de base de datos, genera spans con error y logs en nivel WARN/ERROR.',
+                attributes: [
+                    { k: 'k8s.pod.name', v: 'payment-api-5544d-k92m1' },
+                    { k: 'service.name', v: 'payment-service' },
+                    { k: 'telemetry.sdk.language', v: 'go' },
+                    { k: 'db.system', v: 'postgresql' }
+                ],
+                configName: 'payment-service.yaml',
+                config: `apiVersion: v1
+kind: Service
+metadata:
+  name: payment-api
+spec:
+  ports:
+  - name: grpc
+    port: 9090
+    targetPort: 9090
+  - name: metrics
+    port: 9091
+    targetPort: 9091`,
+                payloadName: 'prometheus_metric_payment.txt',
+                payload: `# HELP http_requests_total Total number of HTTP requests
+# TYPE http_requests_total counter
+http_requests_total{code="200",handler="/pay",method="post"} 10423
+http_requests_total{code="500",handler="/pay",method="post"} 12
+# HELP http_request_duration_seconds HTTP request latency histogram
+http_request_duration_seconds_bucket{le="0.1"} 9801`
+            },
+            'pod-db': {
+                title: 'pod/postgres-db',
+                type: 'StatefulSet Database',
+                icon: 'database',
+                colorClass: 'emerald',
+                subtitle: 'Base de Datos Relacional PostgreSQL',
+                description: 'Almacena estados transaccionales. Un contenedor sidecar Exporter traduce el estado interno de Postgres a métricas legibles por Prometheus.',
+                attributes: [
+                    { k: 'k8s.pod.name', v: 'postgres-db-0' },
+                    { k: 'service.name', v: 'postgres-database' },
+                    { k: 'db.name', v: 'payments_db' }
+                ],
+                configName: 'postgres-statefulset.yaml',
+                config: `apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-db
+spec:
+  serviceName: postgres
+  replicas: 1
+  template:
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+      - name: metrics-exporter
+        image: prometheuscommunity/postgres-exporter`,
+                payloadName: 'json_log_postgres.log',
+                payload: `{
+  "time": "2026-09-30T23:45:01.124Z",
+  "level": "LOG",
+  "user": "app_user",
+  "database": "payments_db",
+  "duration_ms": 14.2,
+  "statement": "SELECT * FROM accounts WHERE account_id = $1"
+}`
+            },
+            'agent-otel': {
+                title: 'OpenTelemetry Collector',
+                type: 'Telemetry Proxy / Gateway',
+                icon: 'cpu',
+                colorClass: 'cyan',
+                subtitle: 'DaemonSet / Collector Deployment',
+                description: 'Componente central neutral. Recibe Métricas, Trazas y Logs por protocol OTLP. Aplica procesamiento por lotes (batching), filtrado de PII, sampling y reenvía a múltiples destinos.',
+                attributes: [
+                    { k: 'otel.collector.version', v: 'v0.98.0' },
+                    { k: 'receivers', v: 'otlp (grpc/http), prometheus' },
+                    { k: 'exporters', v: 'otlp/tempo, prometheus, elasticsearch' }
+                ],
+                configName: 'otel-collector-config.yaml',
+                config: `receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+
+exporters:
+  otlp/tempo:
+    endpoint: tempo.monitoring:4317
+    tls:
+      insecure: true
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/tempo]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus]`,
+                payloadName: 'otel_collector_metrics.json',
+                payload: `{
+  "resourceMetrics": [{
+    "resource": {
+      "attributes": [{ "key": "service.name", "value": { "stringValue": "payment-service" } }]
+    },
+    "scopeMetrics": [{
+      "metrics": [{
+        "name": "process.runtime.go.goroutines",
+        "sum": { "dataPoints": [{ "asInt": "42" }] }
+      }]
+    }]
+  }]
+}`
+            },
+            'agent-prom': {
+                title: 'Prometheus Agent',
+                type: 'Metrics Collector',
+                icon: 'activity',
+                colorClass: 'emerald',
+                subtitle: 'Prometheus Server / Agent Mode',
+                description: 'Especializado en la recolección de métricas numéricas time-series. Ejecuta scraping HTTP GET pull a los endpoints `/metrics` expuestos por las aplicaciones y sidecars.',
+                attributes: [
+                    { k: 'scrape_interval', v: '15s' },
+                    { k: 'mode', v: 'Agent (Remote Write)' },
+                    { k: 'targets_discovered', v: '14 Pods' }
+                ],
+                configName: 'prometheus.yml',
+                config: `global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'kubernetes-pods'
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true`,
+                payloadName: 'prometheus_scrape_sample.txt',
+                payload: `container_cpu_usage_seconds_total{container="frontend",pod="frontend-app-789bfb-x82l9"} 142.85
+container_memory_working_set_bytes{container="frontend",pod="frontend-app-789bfb-x82l9"} 268435456`
+            },
+            'agent-fluentd': {
+                title: 'Fluentd DaemonSet',
+                type: 'Log Collector & Parser',
+                icon: 'file-text',
+                colorClass: 'amber',
+                subtitle: 'Agente de Logging por Nodo (DaemonSet)',
+                description: 'Se ejecuta en cada nodo de K8s. Monta la carpeta host `/var/log/containers`, lee en tiempo real los stdout de Docker/containerd, parsea JSON y añade metadata de Kubernetes (Namespace, Pod, Labels).',
+                attributes: [
+                    { k: 'log_path', v: '/var/log/containers/*.log' },
+                    { k: 'parser', v: 'json / cri' },
+                    { k: 'buffer_type', v: 'file' }
+                ],
+                configName: 'fluentd-daemonset.conf',
+                config: `<source>
+  @type tail
+  path /var/log/containers/*.log
+  pos_file /var/log/fluentd-containers.log.pos
+  tag kubernetes.*
+  read_from_head true
+  <parse>
+    @type json
+  </parse>
+</source>
+
+<filter kubernetes.**>
+  @type kubernetes_metadata
+</filter>
+
+<match kubernetes.**>
+  @type elasticsearch
+  host elasticsearch.monitoring
+  port 9200
+  logstash_format true
+</match>`,
+                payloadName: 'fluentd_enriched_log.json',
+                payload: `{
+  "log": "{\\"event\\":\\"user_login\\",\\"user_id\\":9941}",
+  "stream": "stdout",
+  "time": "2026-09-30T23:46:12.891Z",
+  "kubernetes": {
+    "pod_name": "frontend-app-789bfb-x82l9",
+    "namespace_name": "prod",
+    "host": "node-worker-02",
+    "container_name": "frontend"
+  }
+}`
+            },
+            'store-tempo': {
+                title: 'Jaeger / Tempo',
+                type: 'Trace Storage TSDB',
+                icon: 'git-commit',
+                colorClass: 'cyan',
+                subtitle: 'Almacenamiento de Trazas Distribuidas',
+                description: 'Indexa y almacena grafos de llamadas entre microservicios (Spans y Traces). Permite analizar la latencia de extremo a extremo e identificar cuellos de botella.',
+                attributes: [
+                    { k: 'backend', v: 'Object Storage (S3/GCS)' },
+                    { k: 'query_language', v: 'TraceQL' }
+                ],
+                configName: 'tempo-config.yaml',
+                config: `server:
+  http_listen_port: 3200
+storage:
+  trace:
+    backend: s3
+    s3:
+      bucket: k8s-traces-tempo`,
+                payloadName: 'tempo_trace_query.json',
+                payload: `{
+  "traceID": "8a32b91f0a2d4809bc12e87a",
+  "durationMs": 142,
+  "spansCount": 4,
+  "services": ["frontend-service", "payment-service", "postgres-database"]
+}`
+            },
+            'store-prom': {
+                title: 'Prometheus Server TSDB',
+                type: 'Metrics Time Series Database',
+                icon: 'bar-chart-2',
+                colorClass: 'emerald',
+                subtitle: 'Base de Datos de Series Temporales',
+                description: 'Guarda métricas con marcas de tiempo. Evalúa reglas de alerta (Alertmanager) y responde a consultas PromQL en tiempo real.',
+                attributes: [
+                    { k: 'storage_retention', v: '15d' },
+                    { k: 'query_language', v: 'PromQL' }
+                ],
+                configName: 'prometheus-storage.yaml',
+                config: `tsdb:
+  out_of_order_time_window: 2h
+retention:
+  time: 15d`,
+                payloadName: 'promql_response.json',
+                payload: `{
+  "status": "success",
+  "data": {
+    "resultType": "vector",
+    "result": [
+      {
+        "metric": { "pod": "frontend-app-789bfb-x82l9" },
+        "value": [ 1727730000, "0.14" ]
+      }
+    ]
+  }
+}`
+            },
+            'store-es': {
+                title: 'Elasticsearch / Loki',
+                type: 'Log Index & Database',
+                icon: 'search',
+                colorClass: 'amber',
+                subtitle: 'Almacenamiento de Logs Indexados',
+                description: 'Indexa todos los registros textuales y JSON recolectados. Facilita la búsqueda avanzada por palabras clave, niveles de severidad y campos estructurados.',
+                attributes: [
+                    { k: 'shards', v: '5' },
+                    { k: 'query_language', v: 'Lucene / LogQL' }
+                ],
+                configName: 'elasticsearch-index.json',
+                config: `{
+  "settings": {
+    "number_of_shards": 3,
+    "number_of_replicas": 1
+  }
+}`,
+                payloadName: 'elasticsearch_search_result.json',
+                payload: `{
+  "hits": {
+    "total": { "value": 1420 },
+    "hits": [
+      {
+        "_source": {
+          "@timestamp": "2026-09-30T23:46:12Z",
+          "level": "ERROR",
+          "message": "Payment gateway timeout connecting to provider"
+        }
+      }
+    ]
+  }
+}`
+            },
+            'grafana': {
+                title: 'Grafana Unified Dashboard',
+                type: 'Unified Observability Portal',
+                icon: 'layout-dashboard',
+                colorClass: 'purple',
+                subtitle: 'Panel de Control Unificado con Exemplars',
+                description: 'Punto de convergencia de las 3 señales de observabilidad. Permite saltar de un pico de métrica directamente a la traza distribuida (Exemplars) y ver los logs coincidentes en el tiempo exacto.',
+                attributes: [
+                    { k: 'datasources', v: 'Prometheus, Tempo, Elasticsearch' },
+                    { k: 'feature', v: 'Trace-to-Logs Correlation' }
+                ],
+                configName: 'grafana-datasource.yaml',
+                config: `apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    url: http://prometheus:9090
+    jsonData:
+      exemplarTraceIdDestinations:
+        - name: traceID
+          datasourceUid: tempo
+  - name: Tempo
+    type: tempo
+    url: http://tempo:3200`,
+                payloadName: 'grafana_exemplar.json',
+                payload: `{
+  "series": "http_request_duration_seconds_bucket",
+  "value": 0.45,
+  "exemplar": {
+    "labels": { "traceID": "8a32b91f0a2d4809bc12e87a" },
+    "timestamp": 1727730000
+  }
+}`
+            }
+        };
+
+        // --- STATE VARIABLES ---
+        let currentFilter = 'all'; // 'all', 'metrics', 'traces', 'logs'
+        let currentScenario = 'normal'; // 'normal', 'spike', 'error'
+        let selectedNodeKey = 'pod-frontend';
+        let isPaused = false;
+        let animationFrameId;
+        let particles = [];
+        let liveChartInstance = null;
+
+        // --- PIPELINE CONNECTIONS (FROM NODE -> TO NODE with SIGNAL TYPE) ---
+        const connectionPipes = [
+            // Pod Frontend Signals
+            { from: 'node-pod-frontend', to: 'node-agent-otel', type: 'traces' },
+            { from: 'node-pod-frontend', to: 'node-agent-prom', type: 'metrics' },
+            { from: 'node-pod-frontend', to: 'node-agent-fluentd', type: 'logs' },
+
+            // Pod Payment Signals
+            { from: 'node-pod-payment', to: 'node-agent-otel', type: 'traces' },
+            { from: 'node-pod-payment', to: 'node-agent-prom', type: 'metrics' },
+            { from: 'node-pod-payment', to: 'node-agent-fluentd', type: 'logs' },
+
+            // Pod Database Signals
+            { from: 'node-pod-db', to: 'node-agent-prom', type: 'metrics' },
+            { from: 'node-pod-db', to: 'node-agent-fluentd', type: 'logs' },
+
+            // Agents to Storage
+            { from: 'node-agent-otel', to: 'node-store-tempo', type: 'traces' },
+            { from: 'node-agent-prom', to: 'node-store-prom', type: 'metrics' },
+            { from: 'node-agent-fluentd', to: 'node-store-es', type: 'logs' },
+
+            // Storage to Grafana
+            { from: 'node-store-tempo', to: 'node-grafana', type: 'traces' },
+            { from: 'node-store-prom', to: 'node-grafana', type: 'metrics' },
+            { from: 'node-store-es', to: 'node-grafana', type: 'logs' }
+        ];
+
+        // --- SVG PIPES & ANIMATED PARTICLES ENGINE ---
+        function getCenterCoords(elementId) {
+            const el = document.getElementById(elementId);
+            const container = document.getElementById('signalSvg').getBoundingClientRect();
+            if (!el) return { x: 0, y: 0 };
+            const rect = el.getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2 - container.left,
+                y: rect.top + rect.height / 2 - container.top
+            };
+        }
+
+        function drawPipes() {
+            const svgPipesG = document.getElementById('svgPipes');
+            svgPipesG.innerHTML = '';
+
+            connectionPipes.forEach((pipe, idx) => {
+                // Check if signal should be hidden by current filter
+                if (currentFilter !== 'all' && pipe.type !== currentFilter) return;
+
+                const start = getCenterCoords(pipe.from);
+                const end = getCenterCoords(pipe.to);
+
+                // Draw Smooth Curved Bezier Paths
+                const dx = end.x - start.x;
+                const pathStr = `M ${start.x} ${start.y} C ${start.x + dx * 0.5} ${start.y}, ${end.x - dx * 0.5} ${end.y}, ${end.x} ${end.y}`;
+
+                let strokeColor = '#10B981'; // Metrics
+                if (pipe.type === 'traces') strokeColor = '#06B6D4';
+                if (pipe.type === 'logs') strokeColor = '#F59E0B';
+
+                const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                pathEl.setAttribute('d', pathStr);
+                pathEl.setAttribute('fill', 'none');
+                pathEl.setAttribute('stroke', strokeColor);
+                pathEl.setAttribute('stroke-width', '2');
+                pathEl.setAttribute('stroke-opacity', '0.25');
+                pathEl.setAttribute('stroke-dasharray', '4 4');
+                pathEl.setAttribute('id', `pipe-${idx}`);
+                svgPipesG.appendChild(pathEl);
+            });
+        }
+
+        function initParticles() {
+            particles = [];
+            connectionPipes.forEach((pipe, idx) => {
+                // Determine speed & count based on scenario
+                let count = 2;
+                let baseSpeed = 0.006;
+                if (currentScenario === 'spike') { count = 5; baseSpeed = 0.014; }
+                if (currentScenario === 'error') { count = 3; baseSpeed = 0.009; }
+
+                for (let i = 0; i < count; i++) {
+                    particles.push({
+                        pipeIndex: idx,
+                        type: pipe.type,
+                        progress: Math.random(), // 0.0 to 1.0
+                        speed: baseSpeed + Math.random() * 0.003,
+                        isError: (currentScenario === 'error' && (pipe.type === 'traces' || pipe.type === 'logs') && Math.random() > 0.4)
+                    });
+                }
+            });
+        }
+
+        function animateParticles() {
+            if (!isPaused) {
+                const svgParticlesG = document.getElementById('svgParticles');
+                svgParticlesG.innerHTML = '';
+
+                particles.forEach(p => {
+                    const pipe = connectionPipes[p.pipeIndex];
+                    if (currentFilter !== 'all' && pipe.type !== currentFilter) return;
+
+                    p.progress += p.speed;
+                    if (p.progress >= 1.0) p.progress = 0;
+
+                    const start = getCenterCoords(pipe.from);
+                    const end = getCenterCoords(pipe.to);
+                    const dx = end.x - start.x;
+
+                    // Cubic Bezier Point Calculation
+                    const t = p.progress;
+                    const cx1 = start.x + dx * 0.5;
+                    const cy1 = start.y;
+                    const cx2 = end.x - dx * 0.5;
+                    const cy2 = end.y;
+
+                    const x = Math.pow(1 - t, 3) * start.x +
+                              3 * Math.pow(1 - t, 2) * t * cx1 +
+                              3 * (1 - t) * Math.pow(t, 2) * cx2 +
+                              Math.pow(t, 3) * end.x;
+
+                    const y = Math.pow(1 - t, 3) * start.y +
+                              3 * Math.pow(1 - t, 2) * t * cy1 +
+                              3 * (1 - t) * Math.pow(t, 2) * cy2 +
+                              Math.pow(t, 3) * end.y;
+
+                    // Particle Visual Properties
+                    let color = '#10B981';
+                    let glowClass = 'glow-metric';
+                    if (p.type === 'traces') { color = '#06B6D4'; glowClass = 'glow-trace'; }
+                    if (p.type === 'logs') { color = '#F59E0B'; glowClass = 'glow-log'; }
+                    if (p.isError) { color = '#EF4444'; glowClass = 'glow-error'; }
+
+                    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    circle.setAttribute('cx', x);
+                    circle.setAttribute('cy', y);
+                    circle.setAttribute('r', p.isError ? '5' : '4');
+                    circle.setAttribute('fill', color);
+                    circle.setAttribute('class', glowClass);
+                    svgParticlesG.appendChild(circle);
+                });
+            }
+
+            animationFrameId = requestAnimationFrame(animateParticles);
+        }
+
+        // --- FILTER & SCENARIO CONTROLLER ---
+        function setSignalFilter(filter) {
+            currentFilter = filter;
+            
+            // Reset button active styles
+            ['All', 'Metrics', 'Traces', 'Logs'].forEach(f => {
+                const btn = document.getElementById(`btnFilter${f}`);
+                if (btn) {
+                    btn.classList.remove('bg-k8s/20', 'border-k8s', 'text-white');
+                    btn.classList.add('border-borderbg', 'text-gray-400');
+                }
+            });
+
+            const activeBtn = document.getElementById(`btnFilter${filter.charAt(0).toUpperCase() + filter.slice(1)}`);
+            if (activeBtn) {
+                activeBtn.classList.add('bg-k8s/20', 'border-k8s', 'text-white');
+                activeBtn.classList.remove('border-borderbg', 'text-gray-400');
+            }
+
+            drawPipes();
+        }
+
+        function runScenario(scen) {
+            currentScenario = scen;
+
+            const statusDot = document.getElementById('clusterStatusDot');
+            const statusText = document.getElementById('clusterStatusText');
+            const statRps = document.getElementById('statRps');
+            const statErr = document.getElementById('statErr');
+            const paymentPodBadge = document.getElementById('podPaymentStatus');
+
+            if (scen === 'normal') {
+                statusDot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
+                statusText.innerText = 'ESTADO: NORMAL';
+                statusText.className = 'text-gray-300 font-medium';
+                statRps.innerText = '120';
+                statErr.innerText = '0.00%';
+                statErr.className = 'text-emerald-400 font-bold ml-1';
+                paymentPodBadge.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+                paymentPodBadge.innerText = 'Running';
+            } else if (scen === 'spike') {
+                statusDot.className = 'w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse';
+                statusText.innerText = 'ESTADO: PICO DE TRAFICO';
+                statusText.className = 'text-amber-400 font-medium';
+                statRps.innerText = '1,850';
+                statErr.innerText = '0.02%';
+                statErr.className = 'text-amber-400 font-bold ml-1';
+                paymentPodBadge.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20';
+                paymentPodBadge.innerText = 'High CPU';
+            } else if (scen === 'error') {
+                statusDot.className = 'w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse';
+                statusText.innerText = 'ESTADO: INCIDENTE 500 ERROR';
+                statusText.className = 'text-red-400 font-medium';
+                statRps.innerText = '940';
+                statErr.innerText = '18.45%';
+                statErr.className = 'text-red-400 font-bold ml-1';
+                paymentPodBadge.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20';
+                paymentPodBadge.innerText = 'Error 500';
+            }
+
+            initParticles();
+        }
+
+        function toggleAnimationPause() {
+            isPaused = !isPaused;
+            const pauseIcon = document.getElementById('pauseIcon');
+            if (isPaused) {
+                pauseIcon.setAttribute('data-lucide', 'play');
+            } else {
+                pauseIcon.setAttribute('data-lucide', 'pause');
+            }
+            lucide.createIcons();
+        }
+
+        // --- TECHNICAL INSPECTOR & LIVE CHARTING ---
+        function selectNode(key) {
+            selectedNodeKey = key;
+            const data = nodeDetails[key];
+            if (!data) return;
+
+            // Highlight Node UI
+            document.querySelectorAll('.node-card').forEach(el => el.classList.remove('active'));
+            const activeCard = document.getElementById(`node-${key}`);
+            if (activeCard) activeCard.classList.add('active');
+
+            // Update Inspector Panel Data
+            document.getElementById('inspectorTitle').innerText = data.title;
+            document.getElementById('inspectorTypeBadge').innerText = data.type;
+            document.getElementById('inspectorSubtitle').innerText = data.subtitle;
+            document.getElementById('inspectorDescription').innerText = data.description;
+            document.getElementById('configFileName').innerText = data.configName;
+            document.getElementById('configCode').innerText = data.config;
+            document.getElementById('payloadFileName').innerText = data.payloadName;
+            document.getElementById('payloadCode').innerText = data.payload;
+
+            // Update Icon
+            const iconContainer = document.getElementById('inspectorIconContainer');
+            const iconEl = document.getElementById('inspectorIcon');
+            iconEl.setAttribute('data-lucide', data.icon);
+            lucide.createIcons();
+
+            // Render Attributes
+            const attrContainer = document.getElementById('inspectorAttributes');
+            attrContainer.innerHTML = '';
+            data.attributes.forEach(attr => {
+                const row = document.createElement('div');
+                row.className = 'flex items-center justify-between bg-darkbg/80 px-2.5 py-1 rounded border border-borderbg';
+                row.innerHTML = `<span class="text-gray-400">${attr.k}</span><span class="text-cyan-300 font-semibold">${attr.v}</span>`;
+                attrContainer.appendChild(row);
+            });
+
+            // Re-render Live Chart with simulated data
+            initLiveChart();
+        }
+
+        function switchTab(tab) {
+            ['Overview', 'Config', 'Payload'].forEach(t => {
+                document.getElementById(`tabContent${t}`).classList.add('hidden');
+                document.getElementById(`tabBtn${t}`).className = 'px-3 py-1.5 text-xs font-medium rounded-md text-gray-400 hover:text-white transition-all';
+            });
+
+            const activeBtn = document.getElementById(`tabBtn${tab.charAt(0).toUpperCase() + tab.slice(1)}`);
+            activeBtn.className = 'px-3 py-1.5 text-xs font-medium rounded-md bg-cardbg text-white border border-borderbg';
+            
+            document.getElementById(`tabContent${tab.charAt(0).toUpperCase() + tab.slice(1)}`).classList.remove('hidden');
+        }
+
+        function initLiveChart() {
+            const ctx = document.getElementById('liveChart').getContext('2d');
+            if (liveChartInstance) liveChartInstance.destroy();
+
+            const labels = Array.from({ length: 15 }, (_, i) => `${i * 2}s`);
+            const baseData = currentScenario === 'spike' ? 
+                [40, 45, 55, 78, 92, 98, 95, 90, 88, 94, 99, 92, 85, 89, 95] : 
+                (currentScenario === 'error' ? [20, 22, 25, 60, 85, 40, 90, 15, 75, 80, 95, 30, 20, 85, 90] : [15, 18, 14, 16, 20, 18, 15, 19, 17, 16, 18, 15, 14, 19, 16]);
+
+            liveChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Rendimiento Telemetría (Req/sec)',
+                        data: baseData,
+                        borderColor: currentScenario === 'error' ? '#EF4444' : (currentScenario === 'spike' ? '#F59E0B' : '#10B981'),
+                        backgroundColor: 'rgba(16, 185, 129, 0.05)',
+                        borderWidth: 2,
+                        tension: 0.3,
+                        pointRadius: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { color: '#21262D' }, ticks: { color: '#6E7681', font: { size: 10 } } },
+                        y: { grid: { color: '#21262D' }, ticks: { color: '#6E7681', font: { size: 10 } } }
+                    }
+                }
+            });
+        }
+
+        function copyCode(elementId) {
+            const text = document.getElementById(elementId).innerText;
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+
+            const btn = event.currentTarget;
+            const originalText = btn.innerHTML;
+            btn.innerHTML = `<span class="text-emerald-400 font-bold">¡Copiado!</span>`;
+            setTimeout(() => { btn.innerHTML = originalText; }, 1500);
+        }
+
+        // --- INIT & EVENT LISTENERS ---
+        window.addEventListener('load', () => {
+            lucide.createIcons();
+            drawPipes();
+            initParticles();
+            animateParticles();
+            selectNode('pod-frontend');
+
+            // Handle Responsive Resize
+            window.addEventListener('resize', () => {
+                drawPipes();
+            });
+        });
+    </script>
+</body>
+</html>
