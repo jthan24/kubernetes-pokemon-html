@@ -1,0 +1,981 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kubernetes Pod Lifecycle - Pokédex Edition</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
+
+  <style>
+    body {
+      font-family: 'Rajdhani', sans-serif;
+      background-color: #0f172a;
+      color: #f8fafc;
+    }
+    .font-pixel {
+      font-family: 'Press Start 2P', monospace;
+    }
+    .font-retro {
+      font-family: 'VT323', monospace;
+    }
+    
+    /* Custom Pokédex Styling */
+    .pokedex-shell {
+      background: linear-gradient(145deg, #dc2626 0%, #b91c1c 70%, #991b1b 100%);
+      box-shadow: inset -5px -5px 15px rgba(0,0,0,0.4), inset 5px 5px 15px rgba(255,255,255,0.2), 0 20px 25px -5px rgba(0, 0, 0, 0.7);
+    }
+    .pokedex-screen {
+      background: #020617;
+      border: 4px solid #334155;
+      box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.8), 0 0 10px rgba(56, 189, 248, 0.2);
+    }
+    
+    /* LED Animations */
+    @keyframes pulse-blue {
+      0%, 100% { background-color: #38bdf8; box-shadow: 0 0 15px #38bdf8; }
+      50% { background-color: #0284c7; box-shadow: 0 0 5px #0284c7; }
+    }
+    .led-blue { animation: pulse-blue 2s infinite; }
+    
+    @keyframes blink-red {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .led-red { animation: blink-red 1s infinite; }
+    
+    /* Scanlines effect */
+    .scanlines {
+      background: linear-gradient(
+        rgba(18, 16, 16, 0) 50%, 
+        rgba(0, 0, 0, 0.25) 50%
+      ), linear-gradient(
+        90deg,
+        rgba(255, 0, 0, 0.03),
+        rgba(0, 255, 0, 0.01),
+        rgba(0, 0, 255, 0.03)
+      );
+      background-size: 100% 4px, 6px 100%;
+      pointer-events: none;
+    }
+
+    /* Pokéball Animation */
+    @keyframes spin-slow {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .pokeball-spin { animation: spin-slow 8s linear infinite; }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+  </style>
+</head>
+<body class="min-h-screen p-2 md:p-6 flex flex-col items-center justify-start">
+
+  <div class="w-full max-w-7xl pokedex-shell rounded-3xl p-4 md:p-8 border-4 border-red-800 relative overflow-hidden my-auto">
+    
+    <!-- Top Pokedex Hardware Bar -->
+    <div class="flex items-center justify-between pb-6 mb-6 border-b-4 border-red-900/60">
+      <div class="flex items-center space-x-4">
+        <!-- Big Blue Lens -->
+        <div class="w-12 h-12 md:w-16 md:h-16 rounded-full border-4 border-white bg-sky-400 led-blue flex items-center justify-center relative cursor-pointer" onclick="playAudio('blip')">
+          <div class="w-4 h-4 rounded-full bg-white/80 absolute top-2 left-2"></div>
+        </div>
+        <!-- Small LEDs -->
+        <div class="flex space-x-2">
+          <div class="w-4 h-4 rounded-full bg-red-500 border border-white/50 led-red"></div>
+          <div class="w-4 h-4 rounded-full bg-yellow-400 border border-white/50"></div>
+          <div class="w-4 h-4 rounded-full bg-green-500 border border-white/50"></div>
+        </div>
+      </div>
+      <div class="text-right">
+        <h1 class="font-pixel text-yellow-300 text-sm md:text-2xl drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)] tracking-wider">
+          KUBE-DEX v1.30
+        </h1>
+        <p class="text-xs md:text-sm text-red-100 font-bold uppercase tracking-widest mt-1">
+          Flujo de Creación de Pods & Assigned Nodes
+        </p>
+      </div>
+    </div>
+
+    <!-- Main Content Dual Display Screen -->
+    <div class="pokedex-screen rounded-2xl p-4 md:p-6 relative">
+      <div class="absolute inset-0 scanlines rounded-2xl z-10 opacity-40"></div>
+
+      <!-- Navigation Tabs -->
+      <div class="relative z-20 flex flex-wrap gap-2 mb-6 border-b border-slate-800 pb-3">
+        <button id="tab-flow" onclick="switchTab('flow')" class="px-4 py-2 rounded-lg font-pixel text-xs transition-all duration-200 bg-yellow-400 text-slate-900 font-bold shadow-lg shadow-yellow-500/20 flex items-center gap-2">
+          <i class="fa-solid fa-play text-red-600"></i> 1. SIMULADOR DE FLUJO
+        </button>
+        <button id="tab-comp" onclick="switchTab('comp')" class="px-4 py-2 rounded-lg font-pixel text-xs transition-all duration-200 bg-slate-800 text-slate-300 hover:bg-slate-700 flex items-center gap-2">
+          <i class="fa-solid fa-database text-blue-400"></i> 2. BASE DE DATOS (POKÉDEX)
+        </button>
+        <button id="tab-map" onclick="switchTab('map')" class="px-4 py-2 rounded-lg font-pixel text-xs transition-all duration-200 bg-slate-800 text-slate-300 hover:bg-slate-700 flex items-center gap-2">
+          <i class="fa-solid fa-network-wired text-green-400"></i> 3. MAPA DE ARQUITECTURA
+        </button>
+      </div>
+
+      <!-- VIEW 1: FLOW SIMULATOR -->
+      <div id="view-flow" class="relative z-20 space-y-6">
+        
+        <!-- Controls & Progress Bar Header -->
+        <div class="bg-slate-900/90 p-4 rounded-xl border border-slate-800 flex flex-col md:flex-row justify-between items-center gap-4">
+          <div class="flex items-center space-x-2">
+            <span class="font-pixel text-xs text-yellow-400">PASO:</span>
+            <span id="step-badge" class="px-3 py-1 bg-red-600 font-pixel text-xs rounded-full text-white">1/7</span>
+            <span id="step-title" class="font-bold text-lg text-slate-100 ml-2">Solicitud y Autenticación</span>
+          </div>
+
+          <div class="flex items-center space-x-2">
+            <button onclick="prevStep()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-yellow-400 font-pixel text-xs rounded-lg border border-slate-600 transition">
+              <i class="fa-solid fa-backward"></i> ANT
+            </button>
+            <button id="btn-play" onclick="toggleAutoPlay()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-pixel text-xs rounded-lg border border-emerald-400 transition flex items-center gap-1">
+              <i id="play-icon" class="fa-solid fa-play"></i> <span id="play-text">AUTO</span>
+            </button>
+            <button onclick="nextStep()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-yellow-400 font-pixel text-xs rounded-lg border border-slate-600 transition">
+              SIG <i class="fa-solid fa-forward"></i>
+            </button>
+            <button onclick="resetFlow()" class="px-3 py-2 bg-red-900/50 hover:bg-red-800/80 text-red-200 font-pixel text-xs rounded-lg border border-red-700 transition">
+              <i class="fa-solid fa-rotate-right"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Progress Track -->
+        <div class="w-full bg-slate-950 rounded-full h-3 border border-slate-800 overflow-hidden">
+          <div id="progress-bar" class="bg-gradient-to-r from-red-500 via-yellow-400 to-emerald-400 h-full w-[14.28%] transition-all duration-500"></div>
+        </div>
+
+        <!-- Visual Interactive Canvas Simulator -->
+        <div class="relative bg-slate-950 rounded-xl border border-slate-800 p-4 h-[320px] md:h-[380px] overflow-hidden flex flex-col justify-between">
+          
+          <!-- Background Grid Lines -->
+          <div class="absolute inset-0 bg-[radial-gradient(#334155_1px,transparent_1px)] [background-size:16px_16px] opacity-30"></div>
+
+          <!-- Top Nodes Banner -->
+          <div class="grid grid-cols-2 md:grid-cols-3 gap-4 relative z-10 text-center text-xs font-pixel">
+            <!-- Client Zone -->
+            <div id="node-client" class="p-2 rounded-lg bg-slate-900/80 border border-slate-700 transition-all duration-300">
+              <span class="text-blue-400 block"><i class="fa-solid fa-user-ninja"></i> CLIENTE</span>
+              <span class="text-[10px] text-slate-400 font-sans">kubectl apply -f pod.yaml</span>
+            </div>
+            <!-- Control Plane Zone -->
+            <div id="node-cp" class="p-2 rounded-lg bg-slate-900/80 border border-slate-700 transition-all duration-300 col-span-1">
+              <span class="text-purple-400 block"><i class="fa-solid fa-crown"></i> CONTROL PLANE</span>
+              <span class="text-[10px] text-slate-400 font-sans">apiserver / etcd / scheduler</span>
+            </div>
+            <!-- Worker Node Zone -->
+            <div id="node-worker" class="p-2 rounded-lg bg-slate-900/80 border border-slate-700 transition-all duration-300 col-span-2 md:col-span-1">
+              <span class="text-emerald-400 block"><i class="fa-solid fa-server"></i> WORKER NODE</span>
+              <span class="text-[10px] text-slate-400 font-sans">kubelet / runtime / CNI</span>
+            </div>
+          </div>
+
+          <!-- Map Connection Visualizer (Interactive SVG Canvas) -->
+          <svg class="absolute inset-0 w-full h-full pointer-events-none z-10">
+            <!-- Paths connecting components -->
+            <path id="path-1" d="M 120 180 L 320 180" stroke="#334155" stroke-width="3" stroke-dasharray="6" fill="none" />
+            <path id="path-2" d="M 320 180 L 480 180" stroke="#334155" stroke-width="3" stroke-dasharray="6" fill="none" />
+            <path id="path-3" d="M 480 180 L 680 180" stroke="#334155" stroke-width="3" stroke-dasharray="6" fill="none" />
+          </svg>
+
+          <!-- Interactive Sprite Entities -->
+          <div class="relative z-20 my-auto flex justify-around items-center px-4 md:px-12">
+            
+            <!-- Client Sprite -->
+            <div id="sprite-client" class="flex flex-col items-center transition-transform duration-300">
+              <div class="w-12 h-12 md:w-16 md:h-16 bg-blue-900/40 rounded-full border-2 border-blue-400 flex items-center justify-center text-blue-300 text-2xl shadow-lg shadow-blue-500/20">
+                <i class="fa-solid fa-laptop-code"></i>
+              </div>
+              <span class="text-xs font-bold text-slate-300 mt-1">Usuario / Admin</span>
+            </div>
+
+            <!-- Animated Pokeball Token (The POD being created) -->
+            <div id="pod-pokeball" class="absolute left-[15%] transition-all duration-700 ease-in-out flex flex-col items-center z-30">
+              <div class="w-10 h-10 md:w-12 md:h-12 rounded-full border-2 border-slate-900 bg-gradient-to-b from-red-600 via-red-500 50% to-white 50% relative shadow-lg shadow-red-500/50 flex items-center justify-center pokeball-spin">
+                <div class="w-full h-1 bg-slate-900 absolute top-1/2 -translate-y-1/2"></div>
+                <div class="w-4 h-4 rounded-full bg-white border-2 border-slate-900 z-10 flex items-center justify-center">
+                  <div class="w-1.5 h-1.5 rounded-full bg-slate-900"></div>
+                </div>
+              </div>
+              <span id="pod-status-tag" class="text-[10px] font-pixel text-yellow-300 bg-slate-900/90 px-2 py-0.5 rounded border border-yellow-500/50 mt-1">
+                Pod: Pending
+              </span>
+            </div>
+
+            <!-- API Server Sprite -->
+            <div id="sprite-apiserver" class="flex flex-col items-center transition-transform duration-300">
+              <div class="w-12 h-12 md:w-16 md:h-16 bg-purple-900/40 rounded-full border-2 border-purple-400 flex items-center justify-center text-purple-300 text-2xl shadow-lg shadow-purple-500/20">
+                <i class="fa-solid fa-brain"></i>
+              </div>
+              <span class="text-xs font-bold text-purple-300 mt-1">kube-apiserver</span>
+            </div>
+
+            <!-- ETCD Sprite -->
+            <div id="sprite-etcd" class="flex flex-col items-center transition-transform duration-300">
+              <div class="w-10 h-10 md:w-14 md:h-14 bg-amber-900/40 rounded-full border-2 border-amber-400 flex items-center justify-center text-amber-300 text-xl shadow-lg shadow-amber-500/20">
+                <i class="fa-solid fa-box-archive"></i>
+              </div>
+              <span class="text-xs font-bold text-amber-300 mt-1">etcd</span>
+            </div>
+
+            <!-- Scheduler Sprite -->
+            <div id="sprite-scheduler" class="flex flex-col items-center transition-transform duration-300">
+              <div class="w-10 h-10 md:w-14 md:h-14 bg-indigo-900/40 rounded-full border-2 border-indigo-400 flex items-center justify-center text-indigo-300 text-xl shadow-lg shadow-indigo-500/20">
+                <i class="fa-solid fa-compass"></i>
+              </div>
+              <span class="text-xs font-bold text-indigo-300 mt-1">kube-scheduler</span>
+            </div>
+
+            <!-- Kubelet / Worker Sprite -->
+            <div id="sprite-kubelet" class="flex flex-col items-center transition-transform duration-300">
+              <div class="w-12 h-12 md:w-16 md:h-16 bg-emerald-900/40 rounded-full border-2 border-emerald-400 flex items-center justify-center text-emerald-300 text-2xl shadow-lg shadow-emerald-500/20">
+                <i class="fa-solid fa-robot"></i>
+              </div>
+              <span class="text-xs font-bold text-emerald-300 mt-1">kubelet</span>
+            </div>
+
+          </div>
+
+          <!-- Event Log Terminal Bar -->
+          <div class="bg-slate-900/90 border border-slate-800 rounded-lg p-3 font-retro text-emerald-400 text-sm md:text-base h-20 overflow-y-auto z-20 flex items-start gap-2">
+            <i class="fa-solid fa-terminal text-xs text-slate-500 mt-1"></i>
+            <div id="step-log-text">Iniciando simulador... Haz clic en Siguiente para comenzar la travesía del Pod.</div>
+          </div>
+
+        </div>
+
+        <!-- Detailed Explanatory Card for Current Step -->
+        <div class="bg-slate-900 border-2 border-yellow-500/40 rounded-xl p-5 shadow-xl relative overflow-hidden">
+          <div class="absolute -right-10 -bottom-10 opacity-10 text-yellow-500 text-9xl pointer-events-none">
+            <i class="fa-solid fa-bolt"></i>
+          </div>
+
+          <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-2 mb-3">
+            <h3 id="step-detail-title" class="text-xl font-bold text-yellow-300 flex items-center gap-2">
+              <i class="fa-solid fa-shield-halved text-red-400"></i> 1. Solicitud y Autenticación en el API Server
+            </h3>
+            <span id="step-actors-badge" class="px-3 py-1 bg-purple-950 border border-purple-500/50 rounded-full text-purple-200 text-xs font-pixel">
+              Cliente ➔ kube-apiserver
+            </span>
+          </div>
+
+          <p id="step-detail-desc" class="text-slate-300 text-sm md:text-base leading-relaxed mb-4">
+            El cliente (ej. kubectl apply -f pod.yaml) envía una petición POST HTTPS al kube-apiserver. Se desencadena el proceso de validación.
+          </p>
+
+          <!-- Technical Breakdown Grid -->
+          <div id="step-breakdown-grid" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <!-- Dynamic Inject from JS -->
+          </div>
+        </div>
+
+      </div>
+
+      <!-- VIEW 2: COMPONENT DATABASE (POKÉDEX CARDS) -->
+      <div id="view-comp" class="hidden relative z-20 space-y-6">
+        
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-900/90 p-4 rounded-xl border border-slate-800">
+          <div>
+            <h2 class="font-pixel text-yellow-400 text-sm md:text-base">BASE DE DATOS DE COMPONENTES</h2>
+            <p class="text-xs text-slate-400 font-sans mt-1">Haz clic en un componente para inspeccionar sus estadísticas e "Habilidades Especiales".</p>
+          </div>
+          <!-- Filter Buttons -->
+          <div class="flex gap-2">
+            <button onclick="filterComponents('all')" class="px-3 py-1 bg-slate-800 text-xs rounded border border-slate-700 text-slate-200 hover:bg-slate-700">Todos</button>
+            <button onclick="filterComponents('cp')" class="px-3 py-1 bg-purple-900/50 text-xs rounded border border-purple-600 text-purple-300 hover:bg-purple-800/50">Control Plane</button>
+            <button onclick="filterComponents('worker')" class="px-3 py-1 bg-emerald-900/50 text-xs rounded border border-emerald-600 text-emerald-300 hover:bg-emerald-800/50">Worker Node</button>
+          </div>
+        </div>
+
+        <!-- Cards Grid -->
+        <div id="pokedex-cards-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <!-- Populated by JS -->
+        </div>
+
+      </div>
+
+      <!-- VIEW 3: ARCHITECTURE MAP -->
+      <div id="view-map" class="hidden relative z-20 space-y-6">
+        <div class="bg-slate-900/90 p-4 rounded-xl border border-slate-800">
+          <h2 class="font-pixel text-yellow-400 text-sm md:text-base mb-2">MAPA COMPLETO DE ARQUITECTURA KUBERNETES</h2>
+          <p class="text-xs text-slate-300">Coordinación desacoplada e impulsada por eventos (event-driven) entre Control Plane y Worker Nodes.</p>
+        </div>
+
+        <!-- Full Interactive Map Schema -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          
+          <!-- Control Plane Box -->
+          <div class="bg-purple-950/30 border-2 border-purple-500/50 rounded-2xl p-5 relative overflow-hidden">
+            <div class="flex justify-between items-center mb-4 pb-2 border-b border-purple-500/30">
+              <div class="flex items-center gap-2">
+                <i class="fa-solid fa-crown text-purple-400 text-xl"></i>
+                <h3 class="font-pixel text-purple-300 text-xs md:text-sm">CONTROL PLANE (Plano de Control)</h3>
+              </div>
+              <span class="px-2 py-0.5 bg-purple-900 text-purple-200 text-[10px] font-pixel rounded">Psíquico / Eléctrico</span>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div class="bg-slate-900/80 p-3 rounded-lg border border-purple-400/30 hover:border-purple-400 transition cursor-pointer" onclick="openComponentModal('kube-apiserver')">
+                <div class="flex justify-between items-center text-purple-300 font-bold text-sm mb-1">
+                  <span>kube-apiserver</span>
+                  <i class="fa-solid fa-door-open text-xs"></i>
+                </div>
+                <p class="text-xs text-slate-400">Punto de entrada HTTP/REST. Autenticación, RBAC y Webhooks.</p>
+              </div>
+
+              <div class="bg-slate-900/80 p-3 rounded-lg border border-amber-400/30 hover:border-amber-400 transition cursor-pointer" onclick="openComponentModal('etcd')">
+                <div class="flex justify-between items-center text-amber-300 font-bold text-sm mb-1">
+                  <span>etcd</span>
+                  <i class="fa-solid fa-database text-xs"></i>
+                </div>
+                <p class="text-xs text-slate-400">Base de datos clave-valor distribuida. Estado del clúster.</p>
+              </div>
+
+              <div class="bg-slate-900/80 p-3 rounded-lg border border-indigo-400/30 hover:border-indigo-400 transition cursor-pointer" onclick="openComponentModal('kube-scheduler')">
+                <div class="flex justify-between items-center text-indigo-300 font-bold text-sm mb-1">
+                  <span>kube-scheduler</span>
+                  <i class="fa-solid fa-calculator text-xs"></i>
+                </div>
+                <p class="text-xs text-slate-400">Evalúa predicates y priorities para asignar nodo al Pod.</p>
+              </div>
+
+              <div class="bg-slate-900/80 p-3 rounded-lg border border-pink-400/30 hover:border-pink-400 transition cursor-pointer" onclick="openComponentModal('kube-controller-manager')">
+                <div class="flex justify-between items-center text-pink-300 font-bold text-sm mb-1">
+                  <span>kube-controller-manager</span>
+                  <i class="fa-solid fa-sliders text-xs"></i>
+                </div>
+                <p class="text-xs text-slate-400">Garantiza que el estado deseado coincida con el actual.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Worker Node Box -->
+          <div class="bg-emerald-950/30 border-2 border-emerald-500/50 rounded-2xl p-5 relative overflow-hidden">
+            <div class="flex justify-between items-center mb-4 pb-2 border-b border-emerald-500/30">
+              <div class="flex items-center gap-2">
+                <i class="fa-solid fa-server text-emerald-400 text-xl"></i>
+                <h3 class="font-pixel text-emerald-300 text-xs md:text-sm">WORKER NODE (Nodo Trabajador)</h3>
+              </div>
+              <span class="px-2 py-0.5 bg-emerald-900 text-emerald-200 text-[10px] font-pixel rounded">Lucha / Acero</span>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div class="bg-slate-900/80 p-3 rounded-lg border border-emerald-400/30 hover:border-emerald-400 transition cursor-pointer" onclick="openComponentModal('kubelet')">
+                <div class="flex justify-between items-center text-emerald-300 font-bold text-sm mb-1">
+                  <span>kubelet</span>
+                  <i class="fa-solid fa-microchip text-xs"></i>
+                </div>
+                <p class="text-xs text-slate-400">Agente en el nodo que ejecuta y monitorea los contenedores.</p>
+              </div>
+
+              <div class="bg-slate-900/80 p-3 rounded-lg border border-cyan-400/30 hover:border-cyan-400 transition cursor-pointer" onclick="openComponentModal('container-runtime')">
+                <div class="flex justify-between items-center text-cyan-300 font-bold text-sm mb-1">
+                  <span>Container Runtime</span>
+                  <i class="fa-solid fa-box text-xs"></i>
+                </div>
+                <p class="text-xs text-slate-400">containerd / CRI-O. Descarga imágenes y crea procesos.</p>
+              </div>
+
+              <div class="bg-slate-900/80 p-3 rounded-lg border border-blue-400/30 hover:border-blue-400 transition cursor-pointer col-span-1 sm:col-span-2" onclick="openComponentModal('kube-proxy')">
+                <div class="flex justify-between items-center text-blue-300 font-bold text-sm mb-1">
+                  <span>kube-proxy / CNI</span>
+                  <i class="fa-solid fa-network-wired text-xs"></i>
+                </div>
+                <p class="text-xs text-slate-400">Configura reglas de red (IPs, iptables/eBPF) para la conectividad del Pod.</p>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Event Driven Mechanism Note -->
+        <div class="bg-slate-900 border border-yellow-500/30 p-4 rounded-xl flex items-start gap-3">
+          <div class="p-2 bg-yellow-500/20 text-yellow-400 rounded-lg text-xl">
+            <i class="fa-solid fa-bolt"></i>
+          </div>
+          <div>
+            <h4 class="font-bold text-yellow-300 text-sm">Mecanismo Event-Driven (Watch Loop)</h4>
+            <p class="text-xs text-slate-300 mt-1">
+              Ningún componente fuerza llamadas directas no autorizadas. Los componentes como <code>kube-scheduler</code> y <code>kubelet</code> utilizan peticiones HTTP de larga duración (<strong>Watch</strong>) conectadas al <code>kube-apiserver</code> para reaccionar a cambios en tiempo real.
+            </p>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- Pokedex Footer D-Pad and Buttons -->
+    <div class="mt-6 flex flex-wrap items-center justify-between gap-4 pt-4 border-t-2 border-red-900/60">
+      
+      <!-- Decorative D-Pad -->
+      <div class="flex items-center space-x-3">
+        <div class="relative w-20 h-20 bg-slate-900 rounded-full border-2 border-slate-700 p-2 flex items-center justify-center">
+          <div class="w-16 h-6 bg-slate-800 absolute rounded-sm"></div>
+          <div class="h-16 w-6 bg-slate-800 absolute rounded-sm"></div>
+          <div class="w-3 h-3 bg-slate-900 rounded-full z-10 border border-slate-700"></div>
+        </div>
+        <span class="text-[10px] font-pixel text-red-200 hidden sm:inline">CONTROLES D-PAD</span>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="flex items-center space-x-3">
+        <div class="flex flex-col items-center">
+          <div class="w-8 h-8 rounded-full bg-blue-600 border-2 border-white/40 shadow-md cursor-pointer hover:bg-blue-500 active:scale-95 transition" onclick="toggleAudio()"></div>
+          <span class="text-[9px] font-pixel text-red-200 mt-1">SONIDO</span>
+        </div>
+        <div class="flex flex-col items-center">
+          <div class="w-8 h-8 rounded-full bg-yellow-500 border-2 border-white/40 shadow-md cursor-pointer hover:bg-yellow-400 active:scale-95 transition" onclick="switchTab('comp')"></div>
+          <span class="text-[9px] font-pixel text-red-200 mt-1">DEX</span>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- Detail Modal for Component Inspections -->
+  <div id="modal-component" class="fixed inset-0 bg-black/80 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
+    <div class="bg-slate-900 border-4 border-yellow-500 rounded-2xl max-w-lg w-full p-6 relative shadow-2xl">
+      <button onclick="closeComponentModal()" class="absolute top-3 right-3 text-slate-400 hover:text-white text-xl">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+      <div id="modal-body">
+        <!-- Injected dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- JavaScript Application Logic -->
+  <script>
+    // --- DATA DEFINITIONS ---
+
+    const COMPONENTS = [
+      {
+        id: 'kube-apiserver',
+        name: 'kube-apiserver',
+        plane: 'cp',
+        type: 'Psíquico / Eléctrico',
+        typeBg: 'bg-purple-900/60 border-purple-500 text-purple-200',
+        hp: 95,
+        attack: 'Autenticación & Control',
+        defense: 90,
+        speed: 98,
+        role: 'Punto de Entrada HTTP/REST',
+        desc: 'Expone la API de Kubernetes. Realiza autenticación, autorización (RBAC) y ejecuta Admission Webhooks.',
+        moves: ['HTTPS POST Handler', 'RBAC Validation', 'Mutating/Validating Webhooks', 'Watch Dispatcher'],
+        icon: 'fa-brain'
+      },
+      {
+        id: 'etcd',
+        name: 'etcd',
+        plane: 'cp',
+        type: 'Tierra / Cristal',
+        typeBg: 'bg-amber-900/60 border-amber-500 text-amber-200',
+        hp: 100,
+        attack: 'Persistencia Consistente',
+        defense: 100,
+        speed: 60,
+        role: 'Almacén Clave-Valor Distribuido',
+        desc: 'La fuente única de verdad para todo el estado del clúster. Guarda definiciones y estados de los Pods.',
+        moves: ['Raft Consensus', 'Key-Value Storage', 'MVCC State Control', 'Prefix Watch'],
+        icon: 'fa-database'
+      },
+      {
+        id: 'kube-scheduler',
+        name: 'kube-scheduler',
+        plane: 'cp',
+        type: 'Psíquico / Volador',
+        typeBg: 'bg-indigo-900/60 border-indigo-500 text-indigo-200',
+        hp: 85,
+        attack: 'Algoritmo de Selección',
+        defense: 80,
+        speed: 95,
+        role: 'Planificador de Asignación',
+        desc: 'Escucha Pods sin nodo asignado. Aplica filtros (Predicates) y puntuación (Priorities) para elegir el mejor nodo.',
+        moves: ['Predicates Filtering', 'Priorities Scoring', 'Watch Listener', 'Binding Request'],
+        icon: 'fa-compass'
+      },
+      {
+        id: 'kube-controller-manager',
+        name: 'kube-controller-manager',
+        plane: 'cp',
+        type: 'Acero / Normal',
+        typeBg: 'bg-pink-900/60 border-pink-500 text-pink-200',
+        hp: 90,
+        attack: 'Bucle de Reconciliación',
+        defense: 95,
+        speed: 80,
+        role: 'Gestor de Controladores',
+        desc: 'Ejecuta los bucles de control que regulan el estado del clúster para que coincida con el estado deseado.',
+        moves: ['Reconcile Loop', 'Node Controller', 'ReplicaSet Watcher', 'Garbage Collector'],
+        icon: 'fa-sliders'
+      },
+      {
+        id: 'kubelet',
+        name: 'kubelet',
+        plane: 'worker',
+        type: 'Lucha / Acero',
+        typeBg: 'bg-emerald-900/60 border-emerald-500 text-emerald-200',
+        hp: 92,
+        attack: 'Ejecución y Agente de Nodo',
+        defense: 90,
+        speed: 88,
+        role: 'Agente Primario del Nodo',
+        desc: 'Garantiza que los contenedores descritos en PodSpecs estén corriendo y saludables dentro del nodo.',
+        moves: ['CRI/CNI/CSI Delegation', 'Pod Status Watch', 'Health Probes (Liveness/Readiness)', 'Sync Loop'],
+        icon: 'fa-robot'
+      },
+      {
+        id: 'container-runtime',
+        name: 'Container Runtime',
+        plane: 'worker',
+        type: 'Fuego / Industrial',
+        typeBg: 'bg-cyan-900/60 border-cyan-500 text-cyan-200',
+        hp: 88,
+        attack: 'Creación de Procesos',
+        defense: 85,
+        speed: 85,
+        role: 'Runtime de Contenedores (containerd/CRI-O)',
+        desc: 'Descarga imágenes de contenedores, crea los namespaces de Linux, cgroups y arranca el pause container.',
+        moves: ['Image Pulling', 'Pause Container Setup', 'Process Isolation', 'OCI Runtime Exec'],
+        icon: 'fa-box'
+      },
+      {
+        id: 'kube-proxy',
+        name: 'kube-proxy / CNI',
+        plane: 'worker',
+        type: 'Eléctrico / Red',
+        typeBg: 'bg-blue-900/60 border-blue-500 text-blue-200',
+        hp: 86,
+        attack: 'Enrutamiento IP & iptables/eBPF',
+        defense: 88,
+        speed: 92,
+        role: 'Gestor de Red e IP del Pod',
+        desc: 'Configura las reglas de red en el nodo y asigna direcciones IP a los Pods para conectividad inter-nodo.',
+        moves: ['IP Assignment (CNI)', 'iptables Rules', 'eBPF Routing', 'Service Proxying'],
+        icon: 'fa-network-wired'
+      }
+    ];
+
+    const FLOW_STEPS = [
+      {
+        step: 1,
+        title: "1. Solicitud y Autenticación en el API Server",
+        actors: "Cliente ➔ kube-apiserver",
+        status: "Solicitando",
+        posPct: "15%",
+        log: "[POST HTTPS] Cliente envía manifest pod.yaml al kube-apiserver. Iniciando autenticación, RBAC y webhooks...",
+        desc: "El cliente (ej. kubectl apply -f pod.yaml) envía una petición POST en HTTPS al kube-apiserver para iniciar el ciclo de vida.",
+        cards: [
+          { title: "Autenticación", desc: "Valida la identidad del usuario mediante certificados X.509, ServiceAccounts o Tokens." },
+          { title: "Autorización", desc: "Verifica mediante reglas RBAC si tiene permisos de 'create' en el objeto Pod." },
+          { title: "Admission Control", desc: "Ejecuta Mutating Webhooks (inyectan sidecars) y Validating Webhooks (verifican esquemas)." }
+        ]
+      },
+      {
+        step: 2,
+        title: "2. Persistencia en el Almacén de Estado",
+        actors: "kube-apiserver ➔ etcd",
+        status: "Pending",
+        posPct: "32%",
+        log: "[etcd WRITE] Objeto Pod guardado con spec.nodeName='' (Estado: Pending). etcd confirma la escritura.",
+        desc: "Una vez validado el objeto, el kube-apiserver escribe la definición del Pod de forma duradera en etcd.",
+        cards: [
+          { title: "Estado Vacío", desc: "El Pod se guarda con el campo nodeName vacío, indicando que aún no tiene nodo." },
+          { title: "Confirmación Raft", desc: "etcd confirma la escritura distribuida exitosa al apiserver." },
+          { title: "Respuesta al Cliente", desc: "El API server responde al cliente notificando que el recurso fue creado." }
+        ]
+      },
+      {
+        step: 3,
+        title: "3. Detección y Planificación (Scheduling)",
+        actors: "kube-scheduler ➔ kube-apiserver",
+        status: "Scheduling",
+        posPct: "48%",
+        log: "[WATCH EVENT] kube-scheduler detecta Pod no asignado. Iniciando Filtrado (Predicates) y Puntuación (Priorities)...",
+        desc: "El kube-scheduler mantiene un canal de observación activo (Watch) y detecta que existe un nuevo Pod sin nodo.",
+        cards: [
+          { title: "Watch Active", desc: "Escucha eventos HTTP streaming desde kube-apiserver sin saturar la red." },
+          { title: "Filtrado (Predicates)", desc: "Descarta nodos sin CPU/memoria suficiente, taints o nodeSelectors no compatibles." },
+          { title: "Puntuación (Priorities)", desc: "Asigna un puntaje a candidatos restantes para determinar el nodo óptimo." }
+        ]
+      },
+      {
+        step: 4,
+        title: "4. Vinculación (Binding)",
+        actors: "kube-scheduler ➔ kube-apiserver ➔ etcd",
+        status: "Bound",
+        posPct: "60%",
+        log: "[BINDING] Scheduler selecciona 'Worker-Node-1' y actualiza spec.nodeName en el apiserver.",
+        desc: "El Scheduler envía un sub-recurso de Binding al apiserver para asociar el Pod al nodo seleccionado.",
+        cards: [
+          { title: "Binding Request", desc: "Solicitud de Binding enviada al apiserver especificando el nodo destino." },
+          { title: "Actualización de Spec", desc: "Se actualiza la especificación fijando el campo spec.nodeName = 'node-1'." },
+          { title: "Persistencia en etcd", desc: "El apiserver guarda el enlace en etcd y emite un evento de Binding." }
+        ]
+      },
+      {
+        step: 5,
+        title: "5. Recepción de la Tarea en el Worker Node",
+        actors: "kubelet (Watch) ➔ kube-apiserver",
+        status: "Assigned",
+        posPct: "72%",
+        log: "[KUBELET WATCH] Kubelet del Worker Node detecta Pod asignado a su propio nodeName. Descargando PodSpec...",
+        desc: "El kubelet que se ejecuta en el nodo asignado detecta mediante Watch que tiene un nuevo trabajo pendiente.",
+        cards: [
+          { title: "Local Watcher", desc: "Cada kubelet monitorea únicamente las tareas destinadas a su propio hostname." },
+          { title: "Lectura de Spec", desc: "Obtiene el objeto manifiesto completo con las imágenes y volúmenes requeridos." },
+          { title: "Sync Loop", desc: "Dispara su bucle de sincronización local para llevar el estado deseado a la realidad." }
+        ]
+      },
+      {
+        step: 6,
+        title: "6. Preparación del Entorno y Ejecución",
+        actors: "kubelet ➔ CSI / CRI / CNI",
+        status: "Creating",
+        posPct: "85%",
+        log: "[INTERFACES EXEC] CSI monta almacenamiento -> CRI descarga imagen y lanza pause container -> CNI asigna IP.",
+        desc: "El kubelet delega el trabajo pesado a las interfaces estandarizadas del ecosistema del nodo.",
+        cards: [
+          { title: "CSI (Storage)", desc: "Monta los volúmenes o Persistent Volume Claims requeridos en la ruta local." },
+          { title: "CRI (Runtime)", desc: "Descarga la imagen (pull), inicia el infra 'pause container' y crea los contenedores app." },
+          { title: "CNI (Network)", desc: "Configura las interfaces de red del contenedor y le asigna una IP dentro de la Pod CIDR." }
+        ]
+      },
+      {
+        step: 7,
+        title: "7. Confirmación del Estado",
+        actors: "kubelet ➔ kube-apiserver ➔ etcd",
+        status: "Running",
+        posPct: "95%",
+        log: "[SUCCESS] Contenedores activos. Kubelet reporta estado 'Running' e IP al apiserver. Objeto etcd actualizado.",
+        desc: "Con la aplicación corriendo, el kubelet actualiza el estado del objeto en el plano de control.",
+        cards: [
+          { title: "Status Reporting", desc: "Envía el status del Pod incluyendo PodIP, containerStatuses y ready = true." },
+          { title: "etcd Update", desc: "kube-apiserver actualiza el recurso en etcd para reflejar el estado actual." },
+          { title: "Ciclo Event-Driven Complete", desc: "El Pod ya está listo para recibir tráfico a través de Servicios e Ingress." }
+        ]
+      }
+    ];
+
+    // --- STATE VARIABLES ---
+    let currentStep = 0;
+    let autoPlayInterval = null;
+    let soundEnabled = true;
+
+    // --- AUDIO SYSTEM (Web Audio API synthesis, zero external dependencies) ---
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    
+    function playAudio(type) {
+      if (!soundEnabled) return;
+      try {
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        if (type === 'blip') {
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(440, audioCtx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.08);
+          gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+          gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
+          osc.start();
+          osc.stop(audioCtx.currentTime + 0.08);
+        } else if (type === 'step') {
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(300, audioCtx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(600, audioCtx.currentTime + 0.12);
+          gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+          gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
+          osc.start();
+          osc.stop(audioCtx.currentTime + 0.12);
+        }
+      } catch (e) {
+        console.log("Audio not allowed yet");
+      }
+    }
+
+    function toggleAudio() {
+      soundEnabled = !soundEnabled;
+      alert(soundEnabled ? "Efectos de sonido activados" : "Efectos de sonido desactivados");
+    }
+
+    // --- TAB NAVIGATION ---
+    function switchTab(tab) {
+      playAudio('blip');
+      document.getElementById('view-flow').classList.add('hidden');
+      document.getElementById('view-comp').classList.add('hidden');
+      document.getElementById('view-map').classList.add('hidden');
+
+      document.getElementById('tab-flow').className = "px-4 py-2 rounded-lg font-pixel text-xs transition-all duration-200 bg-slate-800 text-slate-300 hover:bg-slate-700 flex items-center gap-2";
+      document.getElementById('tab-comp').className = "px-4 py-2 rounded-lg font-pixel text-xs transition-all duration-200 bg-slate-800 text-slate-300 hover:bg-slate-700 flex items-center gap-2";
+      document.getElementById('tab-map').className = "px-4 py-2 rounded-lg font-pixel text-xs transition-all duration-200 bg-slate-800 text-slate-300 hover:bg-slate-700 flex items-center gap-2";
+
+      if (tab === 'flow') {
+        document.getElementById('view-flow').classList.remove('hidden');
+        document.getElementById('tab-flow').className = "px-4 py-2 rounded-lg font-pixel text-xs transition-all duration-200 bg-yellow-400 text-slate-900 font-bold shadow-lg shadow-yellow-500/20 flex items-center gap-2";
+      } else if (tab === 'comp') {
+        document.getElementById('view-comp').classList.remove('hidden');
+        document.getElementById('tab-comp').className = "px-4 py-2 rounded-lg font-pixel text-xs transition-all duration-200 bg-yellow-400 text-slate-900 font-bold shadow-lg shadow-yellow-500/20 flex items-center gap-2";
+        renderPokedexCards('all');
+      } else if (tab === 'map') {
+        document.getElementById('view-map').classList.remove('hidden');
+        document.getElementById('tab-map').className = "px-4 py-2 rounded-lg font-pixel text-xs transition-all duration-200 bg-yellow-400 text-slate-900 font-bold shadow-lg shadow-yellow-500/20 flex items-center gap-2";
+      }
+    }
+
+    // --- FLOW SIMULATOR LOGIC ---
+    function updateFlowUI() {
+      const stepData = FLOW_STEPS[currentStep];
+
+      // Badges and text
+      document.getElementById('step-badge').innerText = `${stepData.step}/7`;
+      document.getElementById('step-title').innerText = stepData.title;
+      document.getElementById('step-log-text').innerText = stepData.log;
+
+      // Progress bar percentage
+      const pct = (stepData.step / 7) * 100;
+      document.getElementById('progress-bar').style.width = `${pct}%`;
+
+      // Pokeball positioning
+      const pokeball = document.getElementById('pod-pokeball');
+      pokeball.style.left = stepData.posPct;
+
+      const statusTag = document.getElementById('pod-status-tag');
+      statusTag.innerText = `Pod: ${stepData.status}`;
+
+      if (stepData.status === 'Running') {
+        statusTag.className = "text-[10px] font-pixel text-emerald-300 bg-slate-900/90 px-2 py-0.5 rounded border border-emerald-500 mt-1 shadow-lg shadow-emerald-500/50";
+      } else {
+        statusTag.className = "text-[10px] font-pixel text-yellow-300 bg-slate-900/90 px-2 py-0.5 rounded border border-yellow-500/50 mt-1";
+      }
+
+      // Step detail breakdown box
+      document.getElementById('step-detail-title').innerHTML = `<i class="fa-solid fa-play text-yellow-400"></i> ${stepData.title}`;
+      document.getElementById('step-actors-badge').innerText = stepData.actors;
+      document.getElementById('step-detail-desc').innerText = stepData.desc;
+
+      const grid = document.getElementById('step-breakdown-grid');
+      grid.innerHTML = '';
+      stepData.cards.forEach(card => {
+        grid.innerHTML += `
+          <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+            <h4 class="font-bold text-yellow-400 text-sm mb-1">${card.title}</h4>
+            <p class="text-xs text-slate-300">${card.desc}</p>
+          </div>
+        `;
+      });
+
+      // Highlight active node sprites
+      highlightActiveSprites(currentStep);
+    }
+
+    function highlightActiveSprites(stepIdx) {
+      // Reset all scales
+      ['sprite-client', 'sprite-apiserver', 'sprite-etcd', 'sprite-scheduler', 'sprite-kubelet'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.remove('scale-125', 'brightness-125');
+      });
+
+      if (stepIdx === 0) {
+        document.getElementById('sprite-client').classList.add('scale-125', 'brightness-125');
+        document.getElementById('sprite-apiserver').classList.add('scale-125', 'brightness-125');
+      } else if (stepIdx === 1) {
+        document.getElementById('sprite-apiserver').classList.add('scale-125', 'brightness-125');
+        document.getElementById('sprite-etcd').classList.add('scale-125', 'brightness-125');
+      } else if (stepIdx === 2) {
+        document.getElementById('sprite-scheduler').classList.add('scale-125', 'brightness-125');
+        document.getElementById('sprite-apiserver').classList.add('scale-125', 'brightness-125');
+      } else if (stepIdx === 3) {
+        document.getElementById('sprite-scheduler').classList.add('scale-125', 'brightness-125');
+        document.getElementById('sprite-apiserver').classList.add('scale-125', 'brightness-125');
+        document.getElementById('sprite-etcd').classList.add('scale-125', 'brightness-125');
+      } else if (stepIdx === 4 || stepIdx === 5 || stepIdx === 6) {
+        document.getElementById('sprite-kubelet').classList.add('scale-125', 'brightness-125');
+        document.getElementById('sprite-apiserver').classList.add('scale-125', 'brightness-125');
+      }
+    }
+
+    function nextStep() {
+      playAudio('step');
+      if (currentStep < FLOW_STEPS.length - 1) {
+        currentStep++;
+      } else {
+        currentStep = 0;
+      }
+      updateFlowUI();
+    }
+
+    function prevStep() {
+      playAudio('step');
+      if (currentStep > 0) {
+        currentStep--;
+      } else {
+        currentStep = FLOW_STEPS.length - 1;
+      }
+      updateFlowUI();
+    }
+
+    function resetFlow() {
+      playAudio('blip');
+      currentStep = 0;
+      if (autoPlayInterval) stopAutoPlay();
+      updateFlowUI();
+    }
+
+    function toggleAutoPlay() {
+      playAudio('blip');
+      if (autoPlayInterval) {
+        stopAutoPlay();
+      } else {
+        startAutoPlay();
+      }
+    }
+
+    function startAutoPlay() {
+      document.getElementById('play-icon').className = "fa-solid fa-pause";
+      document.getElementById('play-text').innerText = "PAUSA";
+      autoPlayInterval = setInterval(() => {
+        nextStep();
+      }, 3500);
+    }
+
+    function stopAutoPlay() {
+      document.getElementById('play-icon').className = "fa-solid fa-play";
+      document.getElementById('play-text').innerText = "AUTO";
+      clearInterval(autoPlayInterval);
+      autoPlayInterval = null;
+    }
+
+    // --- POKÉDEX COMPONENT CARDS RENDERER ---
+    function renderPokedexCards(filter) {
+      const grid = document.getElementById('pokedex-cards-grid');
+      grid.innerHTML = '';
+
+      const filtered = COMPONENTS.filter(c => filter === 'all' || c.plane === filter);
+
+      filtered.forEach(comp => {
+        grid.innerHTML += `
+          <!-- Pokemon Trading Card Style Widget -->
+          <div class="bg-slate-900 border-2 border-slate-700 hover:border-yellow-400 rounded-xl p-4 transition-all duration-300 shadow-lg hover:shadow-yellow-500/10 flex flex-col justify-between cursor-pointer" onclick="openComponentModal('${comp.id}')">
+            <div>
+              <!-- Card Header -->
+              <div class="flex justify-between items-center mb-2">
+                <span class="font-pixel text-xs text-yellow-400">#${comp.id.toUpperCase()}</span>
+                <span class="px-2 py-0.5 text-[10px] rounded-full border ${comp.typeBg}">${comp.type}</span>
+              </div>
+
+              <!-- Icon Sprite & Title -->
+              <div class="flex items-center space-x-3 my-3">
+                <div class="w-12 h-12 rounded-lg bg-slate-800 border border-slate-600 flex items-center justify-center text-yellow-400 text-2xl">
+                  <i class="fa-solid ${comp.icon}"></i>
+                </div>
+                <div>
+                  <h3 class="font-bold text-lg text-slate-100">${comp.name}</h3>
+                  <p class="text-xs text-slate-400">${comp.role}</p>
+                </div>
+              </div>
+
+              <!-- Stats Bars -->
+              <div class="space-y-1 my-3">
+                <div class="flex justify-between text-[11px] text-slate-300">
+                  <span>Importancia / HP</span>
+                  <span class="font-bold text-yellow-400">${comp.hp}</span>
+                </div>
+                <div class="w-full bg-slate-950 h-1.5 rounded-full overflow-hidden">
+                  <div class="bg-yellow-400 h-full" style="width: ${comp.hp}%"></div>
+                </div>
+              </div>
+
+              <p class="text-xs text-slate-300 line-clamp-2">${comp.desc}</p>
+            </div>
+
+            <!-- Footer Move badge -->
+            <div class="mt-4 pt-3 border-t border-slate-800 flex justify-between items-center text-xs">
+              <span class="text-slate-400">Habilidad Clave:</span>
+              <span class="font-bold text-emerald-400">${comp.moves[0]}</span>
+            </div>
+          </div>
+        `;
+      });
+    }
+
+    function filterComponents(filter) {
+      playAudio('blip');
+      renderPokedexCards(filter);
+    }
+
+    // --- MODAL DETAILS SYSTEM ---
+    function openComponentModal(id) {
+      playAudio('blip');
+      const comp = COMPONENTS.find(c => c.id === id);
+      if (!comp) return;
+
+      const body = document.getElementById('modal-body');
+      body.innerHTML = `
+        <div class="text-center mb-4">
+          <div class="w-16 h-16 rounded-2xl bg-slate-800 border-2 border-yellow-400 mx-auto flex items-center justify-center text-yellow-400 text-3xl mb-2">
+            <i class="fa-solid ${comp.icon}"></i>
+          </div>
+          <span class="px-3 py-1 rounded-full text-xs font-pixel border ${comp.typeBg}">${comp.type}</span>
+          <h2 class="text-2xl font-bold text-slate-100 mt-2">${comp.name}</h2>
+          <p class="text-sm text-yellow-400 font-medium">${comp.role}</p>
+        </div>
+
+        <p class="text-sm text-slate-300 leading-relaxed bg-slate-950 p-3 rounded-lg border border-slate-800 mb-4">
+          ${comp.desc}
+        </p>
+
+        <!-- Pokédex Move Attack Set -->
+        <h4 class="font-pixel text-xs text-slate-400 mb-2">HABILIDADES / MOVIMIENTOS TÉCNICOS:</h4>
+        <div class="grid grid-cols-2 gap-2 mb-4">
+          ${comp.moves.map(m => `
+            <div class="bg-slate-800 p-2 rounded border border-slate-700 text-xs text-slate-200 flex items-center gap-2">
+              <i class="fa-solid fa-bolt text-yellow-400 text-[10px]"></i>
+              <span>${m}</span>
+            </div>
+          `).join('')}
+        </div>
+
+        <button onclick="closeComponentModal()" class="w-full py-2 bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold rounded-lg font-pixel text-xs transition">
+          CERRAR POKÉDEX DATA
+        </button>
+      `;
+
+      document.getElementById('modal-component').classList.remove('hidden');
+    }
+
+    function closeComponentModal() {
+      playAudio('blip');
+      document.getElementById('modal-component').classList.add('hidden');
+    }
+
+    // --- INITIALIZATION ---
+    window.onload = function() {
+      updateFlowUI();
+      renderPokedexCards('all');
+    };
+  </script>
+</body>
+</html>
