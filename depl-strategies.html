@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NES Deployment & Networking Arcade 8-Bit</title>
+    <!-- Google Font Pixel Art -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        nes: {
+                            black: '#000000',
+                            dark: '#1c1c1c',
+                            blue: '#0000bc',
+                            cyan: '#00a8a8',
+                            green: '#00a800',
+                            red: '#e40000',
+                            yellow: '#f8b800',
+                            white: '#fcfcfc',
+                            gray: '#7c7c7c',
+                            lightgray: '#bcbcbc',
+                            purple: '#6820b0',
+                            orange: '#f85808'
+                        }
+                    },
+                    fontFamily: {
+                        pixel: ['"Press Start 2P"', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* CSS Reset & NES Pixel Styling */
+        body {
+            font-family: 'Press Start 2P', monospace;
+            background-color: #050508;
+            color: #fcfcfc;
+            image-rendering: pixelated;
+            user-select: none;
+        }
+
+        /* CRT Screen Scanline Overlay Effect */
+        .crt-container {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .crt-container::before {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.35) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+            z-index: 20;
+            background-size: 100% 4px, 6px 100%;
+            pointer-events: none;
+        }
+
+        /* NES Border Boxes */
+        .nes-box {
+            border: 4px solid #bcbcbc;
+            box-shadow: 
+                -4px 0 0 0 #000,
+                4px 0 0 0 #000,
+                0 -4px 0 0 #000,
+                0 4px 0 0 #000,
+                inset -4px -4px 0 0 #7c7c7c,
+                inset 4px 4px 0 0 #ffffff;
+            background-color: #000000;
+        }
+
+        .nes-box-red {
+            border-color: #f85808;
+            box-shadow: 
+                -4px 0 0 0 #000, 4px 0 0 0 #000, 0 -4px 0 0 #000, 0 4px 0 0 #000,
+                inset -4px -4px 0 0 #e40000, inset 4px 4px 0 0 #f8b800;
+        }
+
+        .nes-box-blue {
+            border-color: #00a8a8;
+            box-shadow: 
+                -4px 0 0 0 #000, 4px 0 0 0 #000, 0 -4px 0 0 #000, 0 4px 0 0 #000,
+                inset -4px -4px 0 0 #0000bc, inset 4px 4px 0 0 #3cbdc6;
+        }
+
+        /* Retro Arcade Buttons */
+        .arcade-btn {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px 14px;
+            font-size: 11px;
+            color: #fcfcfc;
+            background-color: #0000bc;
+            border: 3px solid #ffffff;
+            box-shadow: 0 5px 0 #000068, -3px 0 0 #000, 3px 0 0 #000;
+            cursor: pointer;
+            transition: all 0.05s ease;
+            text-transform: uppercase;
+        }
+
+        .arcade-btn:active, .arcade-btn.active {
+            transform: translateY(3px);
+            box-shadow: 0 2px 0 #000068, -3px 0 0 #000, 3px 0 0 #000;
+            background-color: #e40000;
+            border-color: #f8b800;
+        }
+
+        /* Custom Range Slider */
+        input[type=range] {
+            -webkit-appearance: none;
+            background: #1c1c1c;
+            border: 2px solid #ffffff;
+            height: 16px;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 24px;
+            background: #f8b800;
+            border: 2px solid #000;
+            cursor: pointer;
+        }
+
+        .blink {
+            animation: blinker 1s steps(2, start) infinite;
+        }
+        @keyframes blinker {
+            to { opacity: 0; }
+        }
+
+        canvas {
+            background-color: #0a0b10;
+            image-rendering: pixelated;
+        }
+    </style>
+</head>
+<body class="min-h-screen p-2 sm:p-4 md:p-8 flex flex-col items-center justify-start crt-container">
+
+    <header class="w-full max-w-5xl nes-box nes-box-red p-4 mb-6 text-center bg-black relative">
+        <div class="flex flex-wrap justify-between items-center mb-2 text-xs text-nes-yellow">
+            <span>[ HIGH SCORE: 999990 ]</span>
+            <span class="blink text-nes-red">[ STAGE: NETWORKING SIMULATOR ]</span>
+            <button id="soundToggleBtn" onclick="toggleSound()" class="px-2 py-1 bg-nes-dark border-2 border-white text-nes-cyan text-xs hover:bg-nes-blue">
+                🔊 SOUND: <span id="soundStatus">ON</span>
+            </button>
+        </div>
+        <h1 class="text-base sm:text-2xl md:text-3xl font-bold text-nes-yellow tracking-wider my-2 drop-shadow-[3px_3px_0_rgba(228,0,0,1)]">
+            DEPLOYMENT & NETWORKING ARCADE 8-BIT
+        </h1>
+        <p class="text-[10px] sm:text-xs text-nes-white mt-1">FLUJO DE RED DE CAPA 4/7, BALANCEO Y CAPA DE DATOS</p>
+    </header>
+
+    <main class="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        <!-- Left Side: Strategy Selection & Stats (5 cols) -->
+        <section class="lg:col-span-5 flex flex-col gap-4">
+            
+            <!-- Controller Box -->
+            <div class="nes-box p-4 bg-nes-dark">
+                <h2 class="text-xs text-nes-cyan mb-4 text-center border-b-2 border-nes-cyan pb-2">
+                    🎮 SELECCIONAR ESTRATEGIA
+                </h2>
+                <div class="flex flex-col gap-3">
+                    <button id="btn-rolling" onclick="selectStrategy('rolling')" class="arcade-btn active text-left justify-start">
+                        <span class="mr-2">1.</span> ROLLING UPDATE
+                    </button>
+                    <button id="btn-bluegreen" onclick="selectStrategy('bluegreen')" class="arcade-btn text-left justify-start">
+                        <span class="mr-2">2.</span> BLUE-GREEN
+                    </button>
+                    <button id="btn-canary" onclick="selectStrategy('canary')" class="arcade-btn text-left justify-start">
+                        <span class="mr-2">3.</span> CANARY DEPLOYMENT
+                    </button>
+                </div>
+            </div>
+
+            <!-- Profile Info Card -->
+            <div id="profile-card" class="nes-box p-4 bg-black flex-1 flex flex-col justify-between">
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <span id="strat-code" class="text-xs text-nes-yellow">CLASS: RU-01</span>
+                        <span id="strat-type" class="text-xs bg-nes-blue px-2 py-1 text-white">GRADUAL</span>
+                    </div>
+                    <h3 id="strat-title" class="text-sm sm:text-base text-nes-green mb-3">ROLLING UPDATE</h3>
+                    <p id="strat-desc" class="text-[10px] leading-relaxed text-nes-lightgray mb-4">
+                        Reemplaza instancias antiguas (v1) por nuevas (v2) de forma progresiva. El tráfico se distribuye entre ambas versiones durante la transición.
+                    </p>
+                </div>
+
+                <!-- Attributes -->
+                <div class="space-y-2 border-t-2 border-nes-gray pt-3 text-[10px]">
+                    <div>
+                        <div class="flex justify-between text-nes-white mb-1">
+                            <span>VELOCIDAD DESPLIEGUE:</span>
+                            <span id="stat-speed-val" class="text-nes-yellow">3/5</span>
+                        </div>
+                        <div class="w-full bg-nes-dark h-3 border border-white p-0.5">
+                            <div id="stat-speed-bar" class="bg-nes-yellow h-full" style="width: 60%"></div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="flex justify-between text-nes-white mb-1">
+                            <span>COSTO INFRAESTRUCTURA:</span>
+                            <span id="stat-cost-val" class="text-nes-green">2/5</span>
+                        </div>
+                        <div class="w-full bg-nes-dark h-3 border border-white p-0.5">
+                            <div id="stat-cost-bar" class="bg-nes-green h-full" style="width: 40%"></div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="flex justify-between text-nes-white mb-1">
+                            <span>SEGURIDAD / ISLAMIENTO:</span>
+                            <span id="stat-safety-val" class="text-nes-cyan">3/5</span>
+                        </div>
+                        <div class="w-full bg-nes-dark h-3 border border-white p-0.5">
+                            <div id="stat-safety-bar" class="bg-nes-cyan h-full" style="width: 60%"></div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="flex justify-between text-nes-white mb-1">
+                            <span>VELOCIDAD ROLLBACK:</span>
+                            <span id="stat-rollback-val" class="text-nes-red">2/5</span>
+                        </div>
+                        <div class="w-full bg-nes-dark h-3 border border-white p-0.5">
+                            <div id="stat-rollback-bar" class="bg-nes-red h-full" style="width: 40%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </section>
+
+        <!-- Right Side: Networking Visualizer Canvas & Controls (7 cols) -->
+        <section class="lg:col-span-7 flex flex-col gap-4">
+            
+            <div class="nes-box nes-box-blue p-3 bg-black flex flex-col">
+                <div class="flex justify-between items-center mb-2 text-xs">
+                    <span class="text-nes-cyan">🌐 NETWORKING SIMULATOR CRT</span>
+                    <span id="sim-status" class="text-nes-green blink">● PACKETS LIVE</span>
+                </div>
+
+                <!-- Simulation Canvas -->
+                <div class="relative w-full aspect-[4/3] sm:aspect-video border-2 border-nes-gray overflow-hidden">
+                    <canvas id="simCanvas" class="w-full h-full block"></canvas>
+                </div>
+
+                <!-- Dynamic Control Panel -->
+                <div id="sim-controls" class="mt-3 p-3 bg-nes-dark border-2 border-white flex flex-wrap gap-2 items-center justify-between text-xs">
+                    <!-- Controls injected via JS -->
+                </div>
+            </div>
+
+            <!-- Pros and Cons -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="nes-box p-3 bg-black border-nes-green">
+                    <h4 class="text-xs text-nes-green mb-2 flex items-center">
+                        <span class="mr-1">👍</span> PROS / VENTAJAS
+                    </h4>
+                    <ul id="list-pros" class="text-[9px] leading-normal text-nes-white space-y-1 list-disc pl-3"></ul>
+                </div>
+
+                <div class="nes-box p-3 bg-black border-nes-red">
+                    <h4 class="text-xs text-nes-red mb-2 flex items-center">
+                        <span class="mr-1">👎</span> CONTRAS / DEBILIDADES
+                    </h4>
+                    <ul id="list-cons" class="text-[9px] leading-normal text-nes-white space-y-1 list-disc pl-3"></ul>
+                </div>
+            </div>
+
+        </section>
+
+    </main>
+
+    <!-- Detailed Networking Explanation Box -->
+    <section class="w-full max-w-5xl nes-box p-4 mt-6 bg-black">
+        <h2 class="text-xs sm:text-sm text-nes-cyan mb-3 border-b-2 border-nes-cyan pb-2 flex items-center">
+            <span class="mr-2">🔌</span> DETALLE TÉCNICO Y ARQUITECTURA DE RED DE CADA DESPLIEGUE
+        </h2>
+        <div id="net-detail-text" class="text-[10px] leading-relaxed text-nes-lightgray space-y-2">
+            <!-- Dynamic Networking text -->
+        </div>
+    </section>
+
+    <!-- VS Matrix Section -->
+    <section class="w-full max-w-5xl nes-box p-4 mt-6 bg-nes-dark">
+        <h2 class="text-xs sm:text-sm text-nes-yellow mb-4 text-center">
+            ⚔️ MATRIZ COMPARATIVA DE ARQUITECTURA DE RED Y DESPLIEGUE
+        </h2>
+        
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-[9px] sm:text-[10px] text-nes-white border-collapse">
+                <thead>
+                    <tr class="border-b-2 border-nes-gray text-nes-cyan">
+                        <th class="p-2">CRITERIO</th>
+                        <th class="p-2 text-nes-yellow">ROLLING UPDATE</th>
+                        <th class="p-2 text-nes-green">BLUE-GREEN</th>
+                        <th class="p-2 text-nes-red">CANARY</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-nes-dark">
+                    <tr>
+                        <td class="p-2 font-bold text-nes-lightgray">Mecanismo Red</td>
+                        <td class="p-2">Load Balancer (Round Robin a Pods mixtos)</td>
+                        <td class="p-2">DNS / Router Switch atómico (0% / 100%)</td>
+                        <td class="p-2">Weighted Routing (Istio / Envoy / Layer 7)</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 font-bold text-nes-lightgray">Costo HW Extra</td>
+                        <td class="p-2 text-nes-green">Bajo (+1 nodo temporal)</td>
+                        <td class="p-2 text-nes-red">Alto (100% infraestructura duplicada)</td>
+                        <td class="p-2 text-nes-yellow">Bajo/Medio (Subconjunto para Canary)</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 font-bold text-nes-lightgray">Tiempo Rollback</td>
+                        <td class="p-2 text-nes-red">Lento (Inverso nodo a nodo)</td>
+                        <td class="p-2 text-nes-green">Instantáneo (1-Click Switch Router)</td>
+                        <td class="p-2 text-nes-green">Rápido (Ajuste instantáneo de peso a 0%)</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 font-bold text-nes-lightgray">Capa Base Datos</td>
+                        <td class="p-2 text-nes-yellow">Única DB (Backward Compatibility)</td>
+                        <td class="p-2 text-nes-red">Estrategia de Sync / Migración de DB</td>
+                        <td class="p-2 text-nes-yellow">Única DB con esquema compatible V1/V2</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 font-bold text-nes-lightgray">Observabilidad</td>
+                        <td class="p-2">Health Checks & Readiness Probes</td>
+                        <td class="p-2">Smoke Tests en ambiente aislado Green</td>
+                        <td class="p-2 text-nes-yellow">Prometheus / Metrics Engine en tiempo real</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <footer class="mt-8 text-[9px] text-nes-gray text-center pb-4">
+        NES DEPLOYMENT & NETWORKING ARCADE • READY FOR VERCEL • SINGLE FILE HTML 8-BIT
+    </footer>
+
+    <script>
+        /* -------------------------------------------------------------------------- */
+        /* WebAudio API Synthesizer (8-Bit Audio Effects)                             */
+        /* -------------------------------------------------------------------------- */
+        let audioCtx = null;
+        let soundEnabled = true;
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        function toggleSound() {
+            soundEnabled = !soundEnabled;
+            document.getElementById('soundStatus').innerText = soundEnabled ? 'ON' : 'OFF';
+            if (soundEnabled) playSound('select');
+        }
+
+        function playSound(type) {
+            if (!soundEnabled) return;
+            initAudio();
+            if (!audioCtx) return;
+
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            const now = audioCtx.currentTime;
+
+            if (type === 'select') {
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(300, now);
+                osc.frequency.exponentialRampToValueAtTime(600, now + 0.08);
+                gain.gain.setValueAtTime(0.1, now);
+                gain.gain.linearRampToValueAtTime(0.01, now + 0.08);
+                osc.start(now);
+                osc.stop(now + 0.08);
+            } else if (type === 'switch') {
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(150, now);
+                osc.frequency.setValueAtTime(450, now + 0.05);
+                gain.gain.setValueAtTime(0.15, now);
+                gain.gain.linearRampToValueAtTime(0.01, now + 0.12);
+                osc.start(now);
+                osc.stop(now + 0.12);
+            } else if (type === 'step') {
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(220, now);
+                gain.gain.setValueAtTime(0.05, now);
+                gain.gain.linearRampToValueAtTime(0.001, now + 0.04);
+                osc.start(now);
+                osc.stop(now + 0.04);
+            } else if (type === 'alert') {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(600, now);
+                osc.frequency.setValueAtTime(200, now + 0.1);
+                gain.gain.setValueAtTime(0.12, now);
+                gain.gain.linearRampToValueAtTime(0.01, now + 0.2);
+                osc.start(now);
+                osc.stop(now + 0.2);
+            }
+        }
+
+        /* -------------------------------------------------------------------------- */
+        /* Strategy & Networking Data Definition                                      */
+        /* -------------------------------------------------------------------------- */
+        const strategies = {
+            rolling: {
+                code: "CLASS: RU-01",
+                type: "PROGRESIVO",
+                title: "ROLLING UPDATE",
+                desc: "Sustituye pods de la versión antigua (V1) por la nueva (V2) paso a paso. El balanceador envía tráfico a un mix de nodos V1 y V2 durante el despliegue.",
+                speed: 3, cost: 2, safety: 3, rollback: 2,
+                pros: [
+                    "Bajo costo de infraestructura adicional.",
+                    "Sin tiempo de inactividad para usuarios.",
+                    "Proceso nativo y sencillo en Kubernetes/Docker."
+                ],
+                cons: [
+                    "Rollback lento (debe revertir nodo a nodo).",
+                    "Coexistencia de V1 y V2 (requiere DB compatible hacia atrás).",
+                    "Si hay un bug, afecta progresivamente al 100% de los usuarios si no se frena a tiempo."
+                ],
+                netDetail: `
+                    <p><strong class="text-nes-yellow">Flujo de Red (Capa 4 / Capa 7):</strong> El cliente realiza peticiones HTTP/TCP que llegan al <strong>Ingress / Load Balancer</strong>. Este distribuye el tráfico mediante algoritmos como Round Robin entre el grupo de pods de aplicación disponibles.</p>
+                    <p><strong class="text-nes-cyan">Concurrencia de Versiones:</strong> A medida que se reemplaza cada pod V1 por V2, el Load Balancer actualiza dinámicamente su tabla de Endpoints (Health Checks activos). Durante la transición, las peticiones se reparten en un pool mixto (ej. 80% V1 / 20% V2).</p>
+                    <p><strong class="text-nes-green">Capa de Base de Datos:</strong> Ambas versiones (V1 y V2) consultan y escriben simultáneamente sobre la misma base de datos. Por ello, la base de datos exige estrategias de migración compatibles hacia atrás (*Backward Compatibility* / patrón Expand & Contract).</p>
+                `
+            },
+            bluegreen: {
+                code: "CLASS: BG-02",
+                type: "ATÓMICO / DUPLO",
+                title: "BLUE-GREEN DEPLOYMENT",
+                desc: "Mantiene dos entornos de producción idénticos (Blue V1 activo, Green V2 inactivo). Un switch en el enrutador conmuta el 100% del tráfico de forma instantánea.",
+                speed: 5, cost: 5, safety: 5, rollback: 5,
+                pros: [
+                    "Rollback instantáneo (re-conmutar router a Blue).",
+                    "Aislamiento total: se valida V2 al 100% antes de recibir usuarios.",
+                    "Evita el problema de versiones mixtas en vivo."
+                ],
+                cons: [
+                    "Duplica el costo de infraestructura durante el despliegue.",
+                    "Sincronización de estado/transacciones en DB compleja si se requiere rollback."
+                ],
+                netDetail: `
+                    <p><strong class="text-nes-yellow">Flujo de Red (DNS / Inbound Gateway):</strong> El cliente se conecta a una entrada única (DNS o Load Balancer CNAME). El router redirige el 100% del tráfico entrante hacia uno de los dos entornos totalmente aislados.</p>
+                    <p><strong class="text-nes-cyan">Conmutación Atómica (Switch):</strong> En el despliegue, la versión V2 se prueba aisladamente en el entorno <strong>GREEN</strong>. Una vez aprobadas las pruebas de humo, el enrutador conmuta las reglas de proxy (0% a 100%) instantáneamente hacia GREEN, dejando a BLUE en standby.</p>
+                    <p><strong class="text-nes-green">Capa de Base de Datos:</strong> Puede compartirse una sola DB con réplicas o sincronización continua, garantizando que si se conmuta de vuelta a BLUE, no haya pérdida de transacciones recién escritas.</p>
+                `
+            },
+            canary: {
+                code: "CLASS: CN-03",
+                type: "ENRUTADO POR PESO",
+                title: "CANARY DEPLOYMENT",
+                desc: "Envía un porcentaje pequeño de usuarios (ej. 10%) a la nueva versión V2. Si las métricas son estables, se incrementa progresivamente el tráfico hasta completar el 100%.",
+                speed: 3, cost: 3, safety: 5, rollback: 4,
+                pros: [
+                    "Radio de impacto (Blast Radius) mínimo ante errores.",
+                    "Pruebas con tráfico y usuarios reales en producción.",
+                    "Despliegue basado en métricas y observabilidad en tiempo real."
+                ],
+                cons: [
+                    "Requiere infraestructura de enrutamiento avanzada (Service Mesh, Ingress Layer 7).",
+                    "Tiempo de despliegue total más largo debido a las fases de observación."
+                ],
+                netDetail: `
+                    <p><strong class="text-nes-yellow">Flujo de Red (Layer 7 / Service Mesh):</strong> Utiliza enrutadores inteligentes como Istio, Envoy o AWS ALB con capacidad de <em>Weighted Traffic Routing</em>. La red intercepta las peticiones y aplica reglas de peso (ej. 90% a Prod V1 y 10% a Canary V2).</p>
+                    <p><strong class="text-nes-cyan">Motor de Observabilidad & Auto-Rollback:</strong> El sistema de métricas (Prometheus / Grafana) monitorea en tiempo real la tasa de errores HTTP 5xx y latencia del subconjunto Canary. Si detecta anomalías, la red redirige automáticamente el peso de Canary a 0%.</p>
+                    <p><strong class="text-nes-green">Promoción Gradual:</strong> Al confirmar la estabilidad del 10% de tráfico, se escala el porcentaje (25% $\\rightarrow$ 50% $\\rightarrow$ 100%) hasta retirar la versión V1 sin afectar a la audiencia general.</p>
+                `
+            }
+        };
+
+        let currentStrategyKey = 'rolling';
+
+        /* -------------------------------------------------------------------------- */
+        /* Canvas Simulation Engine & State                                           */
+        /* -------------------------------------------------------------------------- */
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let simState = {
+            rollingStep: 0, // 0 to 6 pods
+            bgActiveEnv: 'blue', // 'blue' or 'green'
+            canaryPct: 10, // 0 to 100%
+            packets: [],
+            burstActive: false,
+            autoRollbackTriggered: false
+        };
+
+        function resizeCanvas() {
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = canvas.parentElement.clientHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        /* -------------------------------------------------------------------------- */
+        /* Strategy Switch & UI Updating                                              */
+        /* -------------------------------------------------------------------------- */
+        function selectStrategy(key) {
+            playSound('select');
+            currentStrategyKey = key;
+
+            ['rolling', 'bluegreen', 'canary'].forEach(k => {
+                const btn = document.getElementById(`btn-${k}`);
+                if (k === key) btn.classList.add('active');
+                else btn.classList.remove('active');
+            });
+
+            const data = strategies[key];
+            document.getElementById('strat-code').innerText = data.code;
+            document.getElementById('strat-type').innerText = data.type;
+            document.getElementById('strat-title').innerText = data.title;
+            document.getElementById('strat-desc').innerText = data.desc;
+
+            updateBar('speed', data.speed);
+            updateBar('cost', data.cost);
+            updateBar('safety', data.safety);
+            updateBar('rollback', data.rollback);
+
+            document.getElementById('list-pros').innerHTML = data.pros.map(p => `<li>${p}</li>`).join('');
+            document.getElementById('list-cons').innerHTML = data.cons.map(c => `<li>${c}</li>`).join('');
+            document.getElementById('net-detail-text').innerHTML = data.netDetail;
+
+            // Reset state
+            simState.rollingStep = 0;
+            simState.bgActiveEnv = 'blue';
+            simState.canaryPct = 10;
+            simState.packets = [];
+            simState.autoRollbackTriggered = false;
+
+            renderSimControls();
+        }
+
+        function updateBar(id, val) {
+            document.getElementById(`stat-${id}-val`).innerText = `${val}/5`;
+            document.getElementById(`stat-${id}-bar`).style.width = `${(val/5)*100}%`;
+        }
+
+        function renderSimControls() {
+            const container = document.getElementById('sim-controls');
+            container.innerHTML = '';
+
+            if (currentStrategyKey === 'rolling') {
+                container.innerHTML = `
+                    <div class="flex flex-wrap items-center gap-2 w-full justify-between">
+                        <div class="flex items-center gap-2">
+                            <button onclick="stepRolling()" class="px-2 py-1 bg-nes-blue text-white border border-white hover:bg-nes-green">
+                                ▶ REEMPLAZAR POD (+1 V2)
+                            </button>
+                            <button onclick="resetRolling()" class="px-2 py-1 bg-nes-dark border border-gray-400 text-nes-lightgray hover:text-white">
+                                🔄 REINICIAR
+                            </button>
+                        </div>
+                        <button onclick="sendHTTPBurst()" class="px-2 py-1 bg-nes-purple border border-f8b800 text-nes-yellow hover:bg-nes-red">
+                            ⚡ RÁFAGA HTTP
+                        </button>
+                    </div>
+                `;
+            } else if (currentStrategyKey === 'bluegreen') {
+                container.innerHTML = `
+                    <div class="flex flex-wrap items-center justify-between w-full gap-2">
+                        <button onclick="switchBlueGreen()" class="px-3 py-1 bg-nes-red text-white border-2 border-f8b800 hover:bg-nes-yellow hover:text-black">
+                            🔀 CONMUTAR ROUTER (SWITCH BLUE/GREEN)
+                        </button>
+                        <button onclick="sendHTTPBurst()" class="px-2 py-1 bg-nes-purple border border-f8b800 text-nes-yellow hover:bg-nes-red">
+                            ⚡ RÁFAGA HTTP
+                        </button>
+                    </div>
+                `;
+            } else if (currentStrategyKey === 'canary') {
+                container.innerHTML = `
+                    <div class="flex flex-col w-full gap-2">
+                        <div class="flex items-center gap-3 w-full">
+                            <span class="text-nes-yellow text-[10px]">PESO TRÁFICO CANARY (V2): <span id="canaryVal" class="text-nes-red">${simState.canaryPct}%</span></span>
+                            <input type="range" min="0" max="100" step="10" value="${simState.canaryPct}" oninput="updateCanary(this.value)" class="flex-1">
+                        </div>
+                        <div class="flex justify-between items-center text-[10px]">
+                            <button onclick="simulateMetricsError()" class="px-2 py-1 bg-nes-red text-white border border-white hover:bg-nes-yellow hover:text-black">
+                                ⚠️ SIMULAR ERRORES 5XX (AUTO-ROLLBACK)
+                            </button>
+                            <button onclick="sendHTTPBurst()" class="px-2 py-1 bg-nes-purple border border-f8b800 text-nes-yellow">
+                                ⚡ RÁFAGA HTTP
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        function stepRolling() {
+            if (simState.rollingStep < 6) {
+                simState.rollingStep++;
+                playSound('step');
+            } else {
+                simState.rollingStep = 0;
+                playSound('switch');
+            }
+        }
+
+        function resetRolling() {
+            simState.rollingStep = 0;
+            playSound('select');
+        }
+
+        function switchBlueGreen() {
+            simState.bgActiveEnv = simState.bgActiveEnv === 'blue' ? 'green' : 'blue';
+            playSound('switch');
+        }
+
+        function updateCanary(val) {
+            simState.canaryPct = parseInt(val);
+            document.getElementById('canaryVal').innerText = `${val}%`;
+            simState.autoRollbackTriggered = false;
+            playSound('step');
+        }
+
+        function simulateMetricsError() {
+            playSound('alert');
+            simState.autoRollbackTriggered = true;
+            simState.canaryPct = 0;
+            const slider = document.querySelector('input[type=range]');
+            if (slider) slider.value = 0;
+            const label = document.getElementById('canaryVal');
+            if (label) label.innerText = "0% (ABORTED!)";
+        }
+
+        function sendHTTPBurst() {
+            playSound('switch');
+            simState.burstActive = true;
+            setTimeout(() => simState.burstActive = false, 1200);
+        }
+
+        /* -------------------------------------------------------------------------- */
+        /* 8-Bit Canvas Render Loop                                                   */
+        /* -------------------------------------------------------------------------- */
+        function drawPixelRect(x, y, w, h, color, borderColor = '#ffffff') {
+            ctx.fillStyle = color;
+            ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+            if (borderColor) {
+                ctx.strokeStyle = borderColor;
+                ctx.lineWidth = 2;
+                ctx.strokeRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+            }
+        }
+
+        function drawPixelText(text, x, y, color = '#ffffff', size = 9) {
+            ctx.font = `${size}px "Press Start 2P"`;
+            ctx.fillStyle = color;
+            ctx.fillText(text, Math.round(x), Math.round(y));
+        }
+
+        function drawDashedLine(x1, y1, x2, y2, color = '#7c7c7c') {
+            ctx.beginPath();
+            ctx.setLineDash([4, 4]);
+            ctx.moveTo(Math.round(x1), Math.round(y1));
+            ctx.lineTo(Math.round(x2), Math.round(y2));
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const w = canvas.width;
+            const h = canvas.height;
+
+            if (currentStrategyKey === 'rolling') {
+                renderRollingNetSimulation(w, h);
+            } else if (currentStrategyKey === 'bluegreen') {
+                renderBlueGreenNetSimulation(w, h);
+            } else if (currentStrategyKey === 'canary') {
+                renderCanaryNetSimulation(w, h);
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        /* --- Rolling Update Networking Render --- */
+        function renderRollingNetSimulation(w, h) {
+            // Client Node
+            drawPixelRect(15, 15, 80, 30, '#1c1c1c', '#ffffff');
+            drawPixelText("CLIENTS", 22, 34, '#f8b800', 8);
+
+            // Load Balancer
+            const lbX = w / 2 - 60;
+            drawPixelRect(lbX, 15, 120, 30, '#0000bc', '#00a8a8');
+            drawPixelText("LOAD BALANCER", lbX + 6, 34, '#ffffff', 7);
+
+            drawDashedLine(95, 30, lbX, 30, '#00a8a8');
+
+            // Pods Layer
+            const totalPods = 6;
+            const podW = 50;
+            const podH = 45;
+            const spacing = (w - 30 - (totalPods * podW)) / (totalPods + 1);
+            const podY = 95;
+
+            for (let i = 0; i < totalPods; i++) {
+                const isV2 = i < simState.rollingStep;
+                const podX = 15 + spacing + i * (podW + spacing);
+
+                drawDashedLine(lbX + 60, 45, podX + podW / 2, podY, isV2 ? '#00a800' : '#0000bc');
+
+                const color = isV2 ? '#00a800' : '#0000bc';
+                const border = isV2 ? '#f8b800' : '#ffffff';
+                const label = isV2 ? 'V2' : 'V1';
+
+                drawPixelRect(podX, podY, podW, podH, color, border);
+                drawPixelText(`POD${i+1}`, podX + 6, podY + 18, '#ffffff', 7);
+                drawPixelText(`[${label}]`, podX + 10, podY + 34, isV2 ? '#f8b800' : '#00a8a8', 7);
+
+                // Line from Pods to Shared Database
+                drawDashedLine(podX + podW / 2, podY + podH, w / 2, h - 35, '#f85808');
+
+                // Spawn Traffic Packets
+                const spawnRate = simState.burstActive ? 0.35 : 0.08;
+                if (Math.random() < spawnRate) {
+                    simState.packets.push({
+                        x: lbX + 60,
+                        y: 45,
+                        targetX: podX + podW / 2,
+                        targetY: podY,
+                        stage: 1,
+                        color: isV2 ? '#f8b800' : '#00a8a8',
+                        podIndex: i
+                    });
+                }
+            }
+
+            // Shared Database Box
+            drawPixelRect(w / 2 - 70, h - 35, 140, 25, '#f85808', '#ffffff');
+            drawPixelText("SHARED DB (V1/V2)", w / 2 - 62, h - 18, '#ffffff', 7);
+
+            // Animate Packets
+            for (let pIndex = simState.packets.length - 1; pIndex >= 0; pIndex--) {
+                const p = simState.packets[pIndex];
+
+                if (p.stage === 1) {
+                    const dx = p.targetX - p.x;
+                    const dy = p.targetY - p.y;
+                    p.x += dx * 0.1;
+                    p.y += dy * 0.1;
+                    if (Math.abs(dx) < 2 && Math.abs(dy) < 2) {
+                        p.stage = 2; // move to DB
+                        p.targetX = w / 2;
+                        p.targetY = h - 35;
+                    }
+                } else if (p.stage === 2) {
+                    const dx = p.targetX - p.x;
+                    const dy = p.targetY - p.y;
+                    p.x += dx * 0.1;
+                    p.y += dy * 0.1;
+                    if (Math.abs(dx) < 2 && Math.abs(dy) < 2) {
+                        simState.packets.splice(pIndex, 1);
+                    }
+                }
+
+                drawPixelRect(p.x - 3, p.y - 3, 6, 6, p.color, null);
+            }
+
+            drawPixelText(`ESTADO: ${simState.rollingStep}/6 PODS EN V2 (${Math.round((simState.rollingStep/6)*100)}% TRÁFICO V2)`, 15, h - 4, '#fcfcfc', 7);
+        }
+
+        /* --- Blue-Green Networking Render --- */
+        function renderBlueGreenNetSimulation(w, h) {
+            const isBlue = simState.bgActiveEnv === 'blue';
+
+            // Client Box
+            drawPixelRect(15, 15, 80, 30, '#1c1c1c', '#ffffff');
+            drawPixelText("CLIENTS", 22, 34, '#f8b800', 8);
+
+            // Router / DNS Gateway Box
+            const rX = w / 2 - 70;
+            drawPixelRect(rX, 15, 140, 30, '#e40000', '#f8b800');
+            drawPixelText("ROUTER / DNS SWITCH", rX + 6, 34, '#ffffff', 7);
+
+            drawDashedLine(95, 30, rX, 30, '#f8b800');
+
+            // Environments
+            const envW = (w - 50) / 2;
+            const blueX = 15;
+            const greenX = 35 + envW;
+            const envY = 80;
+
+            // Blue Environment (V1)
+            drawPixelRect(blueX, envY, envW, 70, isBlue ? '#0000bc' : '#1c1c1c', isBlue ? '#00a8a8' : '#7c7c7c');
+            drawPixelText("BLUE ENV (V1 PROD)", blueX + 10, envY + 20, isBlue ? '#ffffff' : '#7c7c7c', 8);
+            drawPixelText(isBlue ? "● TRAFFIC ACTIVE (100%)" : "○ STANDBY / IDLE", blueX + 10, envY + 45, isBlue ? '#00a8a8' : '#7c7c7c', 7);
+
+            // Green Environment (V2)
+            drawPixelRect(greenX, envY, envW, 70, !isBlue ? '#00a800' : '#1c1c1c', !isBlue ? '#f8b800' : '#7c7c7c');
+            drawPixelText("GREEN ENV (V2 STAGE)", greenX + 10, envY + 20, !isBlue ? '#ffffff' : '#7c7c7c', 8);
+            drawPixelText(!isBlue ? "● TRAFFIC ACTIVE (100%)" : "○ ISOLATED / TESTING", greenX + 10, envY + 45, !isBlue ? '#f8b800' : '#7c7c7c', 7);
+
+            // Lines from Router to Envs
+            drawDashedLine(rX + 70, 45, blueX + envW / 2, envY, isBlue ? '#00a8a8' : '#7c7c7c');
+            drawDashedLine(rX + 70, 45, greenX + envW / 2, envY, !isBlue ? '#f8b800' : '#7c7c7c');
+
+            // Database Layer
+            drawPixelRect(w / 2 - 70, h - 35, 140, 25, '#f85808', '#ffffff');
+            drawPixelText("DATABASE (SYNC)", w / 2 - 58, h - 18, '#ffffff', 7);
+
+            drawDashedLine(blueX + envW / 2, envY + 70, w / 2 - 30, h - 35, '#f85808');
+            drawDashedLine(greenX + envW / 2, envY + 70, w / 2 + 30, h - 35, '#f85808');
+
+            // Packet Spawning
+            const spawnRate = simState.burstActive ? 0.4 : 0.12;
+            if (Math.random() < spawnRate) {
+                const activeX = isBlue ? blueX + envW / 2 : greenX + envW / 2;
+                simState.packets.push({
+                    x: rX + 70,
+                    y: 45,
+                    targetX: activeX,
+                    targetY: envY,
+                    stage: 1,
+                    color: isBlue ? '#00a8a8' : '#f8b800'
+                });
+            }
+
+            // Animate Packets
+            for (let pIndex = simState.packets.length - 1; pIndex >= 0; pIndex--) {
+                const p = simState.packets[pIndex];
+
+                if (p.stage === 1) {
+                    const dx = p.targetX - p.x;
+                    const dy = p.targetY - p.y;
+                    p.x += dx * 0.12;
+                    p.y += dy * 0.12;
+                    if (Math.abs(dx) < 2 && Math.abs(dy) < 2) {
+                        p.stage = 2;
+                        p.targetX = p.x < w / 2 ? w / 2 - 30 : w / 2 + 30;
+                        p.targetY = h - 35;
+                    }
+                } else if (p.stage === 2) {
+                    const dx = p.targetX - p.x;
+                    const dy = p.targetY - p.y;
+                    p.x += dx * 0.1;
+                    p.y += dy * 0.1;
+                    if (Math.abs(dx) < 2 && Math.abs(dy) < 2) {
+                        simState.packets.splice(pIndex, 1);
+                    }
+                }
+
+                drawPixelRect(p.x - 3, p.y - 3, 6, 6, p.color, null);
+            }
+
+            drawPixelText(`ROUTER DESTINO: 100% TRÁFICO A [ ${simState.bgActiveEnv.toUpperCase()} ]`, 15, h - 4, isBlue ? '#00a8a8' : '#00a800', 7);
+        }
+
+        /* --- Canary Deployment Networking Render --- */
+        function renderCanaryNetSimulation(w, h) {
+            // Client Box
+            drawPixelRect(15, 15, 80, 30, '#1c1c1c', '#ffffff');
+            drawPixelText("CLIENTS", 22, 34, '#f8b800', 8);
+
+            // Ingress / Service Mesh Router Box
+            const meshX = w / 2 - 80;
+            drawPixelRect(meshX, 15, 160, 30, '#6820b0', '#f8b800');
+            drawPixelText("SERVICE MESH (ENVOY)", meshX + 6, 34, '#ffffff', 7);
+
+            drawDashedLine(95, 30, meshX, 30, '#6820b0');
+
+            // Target Nodes
+            const prodX = 20;
+            const prodW = w * 0.55;
+
+            const canaryX = prodX + prodW + 20;
+            const canaryW = w - canaryX - 20;
+
+            const nodeY = 85;
+
+            // Main Cluster V1 Box
+            const mainPct = 100 - simState.canaryPct;
+            drawPixelRect(prodX, nodeY, prodW, 65, '#0000bc', '#00a8a8');
+            drawPixelText("PROD CLUSTER V1", prodX + 10, nodeY + 20, '#ffffff', 8);
+            drawPixelText(`WEIGHT: ${mainPct}% TRÁFICO`, prodX + 10, nodeY + 45, '#00a8a8', 7);
+
+            // Canary V2 Box
+            drawPixelRect(canaryX, nodeY, canaryW, 65, simState.autoRollbackTriggered ? '#1c1c1c' : '#e40000', '#f8b800');
+            drawPixelText("CANARY V2", canaryX + 8, nodeY + 20, '#ffffff', 8);
+            drawPixelText(`WEIGHT: ${simState.canaryPct}%`, canaryX + 8, nodeY + 45, simState.autoRollbackTriggered ? '#e40000' : '#f8b800', 7);
+
+            // Lines
+            drawDashedLine(meshX + 80, 45, prodX + prodW / 2, nodeY, '#00a8a8');
+            drawDashedLine(meshX + 80, 45, canaryX + canaryW / 2, nodeY, '#f8b800');
+
+            // Metrics / Observability Engine
+            drawPixelRect(w / 2 - 90, h - 35, 180, 25, simState.autoRollbackTriggered ? '#e40000' : '#1c1c1c', '#00a8a8');
+            drawPixelText(simState.autoRollbackTriggered ? "METRICS: 5XX DETECTED!" : "METRICS ENGINE (PROMETHEUS)", w / 2 - 82, h - 18, simState.autoRollbackTriggered ? '#ffffff' : '#00a8a8', 6);
+
+            // Spawn packets by percentage weight
+            const spawnRate = simState.burstActive ? 0.4 : 0.12;
+            if (Math.random() < spawnRate) {
+                const isCanary = (Math.random() * 100) < simState.canaryPct;
+                const destX = isCanary ? canaryX + canaryW / 2 : prodX + prodW / 2;
+                simState.packets.push({
+                    x: meshX + 80,
+                    y: 45,
+                    targetX: destX,
+                    targetY: nodeY,
+                    stage: 1,
+                    color: isCanary ? '#f8b800' : '#00a8a8'
+                });
+            }
+
+            // Animate Packets
+            for (let pIndex = simState.packets.length - 1; pIndex >= 0; pIndex--) {
+                const p = simState.packets[pIndex];
+
+                if (p.stage === 1) {
+                    const dx = p.targetX - p.x;
+                    const dy = p.targetY - p.y;
+                    p.x += dx * 0.1;
+                    p.y += dy * 0.1;
+                    if (Math.abs(dx) < 2 && Math.abs(dy) < 2) {
+                        p.stage = 2;
+                        p.targetX = w / 2;
+                        p.targetY = h - 35;
+                    }
+                } else if (p.stage === 2) {
+                    const dx = p.targetX - p.x;
+                    const dy = p.targetY - p.y;
+                    p.x += dx * 0.1;
+                    p.y += dy * 0.1;
+                    if (Math.abs(dx) < 2 && Math.abs(dy) < 2) {
+                        simState.packets.splice(pIndex, 1);
+                    }
+                }
+
+                drawPixelRect(p.x - 3, p.y - 3, 6, 6, p.color, null);
+            }
+
+            const textStatus = simState.autoRollbackTriggered ? "AUTO-ROLLBACK TRIGGERED! CANARY RESET TO 0%" : `CANARY WEIGHT: ${simState.canaryPct}% V2 / ${mainPct}% V1`;
+            drawPixelText(textStatus, 15, h - 4, simState.autoRollbackTriggered ? '#e40000' : '#f8b800', 7);
+        }
+
+        /* -------------------------------------------------------------------------- */
+        /* Initialization                                                             */
+        /* -------------------------------------------------------------------------- */
+        window.onload = function() {
+            selectStrategy('rolling');
+            animate();
+        };
+    </script>
+</body>
+</html>
