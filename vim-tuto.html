@@ -1,0 +1,1413 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VIM & Terminal Interactive Blueprint | JhonnyPong</title>
+  <style>
+    :root {
+      --bg-dark: #070b14;
+      --bg-panel: #0f172a;
+      --bg-card: #162038;
+      --border-grid: rgba(56, 189, 248, 0.14);
+      --emerald: #10b981;
+      --emerald-glow: rgba(16, 185, 129, 0.35);
+      --cyan: #38bdf8;
+      --cyan-glow: rgba(56, 189, 248, 0.35);
+      --amber: #f59e0b;
+      --amber-glow: rgba(245, 158, 11, 0.35);
+      --purple: #a855f7;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --font-mono: 'Fira Code', 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+      --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      background-image:
+        linear-gradient(var(--border-grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--border-grid) 1px, transparent 1px);
+      background-size: 28px 28px;
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      line-height: 1.55;
+      padding: 24px 16px 60px;
+    }
+
+    .container {
+      max-width: 1120px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+
+    /* HEADER / HERO */
+    header {
+      background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(22, 32, 56, 0.95));
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      border-radius: 16px;
+      padding: 28px 32px;
+      box-shadow: 0 0 35px rgba(16, 185, 129, 0.08);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .badge-top {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--emerald);
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      padding: 4px 12px;
+      border-radius: 999px;
+      margin-bottom: 12px;
+      letter-spacing: 0.05em;
+    }
+
+    h1 {
+      font-size: clamp(1.65rem, 3vw, 2.35rem);
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+      background: linear-gradient(90deg, #ffffff, var(--cyan), var(--emerald));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    header p {
+      color: var(--text-muted);
+      max-width: 780px;
+      font-size: 1rem;
+    }
+
+    .metrics-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 14px;
+      margin-top: 22px;
+      padding-top: 20px;
+      border-top: 1px solid rgba(148, 163, 184, 0.15);
+    }
+
+    .metric-box {
+      background: rgba(7, 11, 20, 0.65);
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: 10px;
+      padding: 12px 16px;
+    }
+
+    .metric-val {
+      font-family: var(--font-mono);
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--cyan);
+    }
+
+    .metric-label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    /* SECTION CARDS */
+    section {
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 16px;
+      padding: 26px;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 1.25rem;
+      font-weight: 700;
+    }
+
+    .step-num {
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      background: var(--cyan);
+      color: #050811;
+      font-weight: 800;
+      padding: 3px 9px;
+      border-radius: 6px;
+    }
+
+    /* 1. MODAL ARCHITECTURE & KEYBOARD */
+    .modes-grid {
+      display: grid;
+      grid-template-columns: 1fr 1.2fr;
+      gap: 22px;
+    }
+
+    @media (max-width: 820px) {
+      .modes-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .mode-tabs {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .mode-btn {
+      background: var(--bg-card);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 12px;
+      padding: 14px 16px;
+      text-align: left;
+      color: var(--text-main);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .mode-btn:hover {
+      border-color: var(--cyan);
+      transform: translateX(3px);
+    }
+
+    .mode-btn.active[data-mode="normal"] {
+      border-color: var(--emerald);
+      box-shadow: 0 0 18px var(--emerald-glow);
+      background: rgba(16, 185, 129, 0.12);
+    }
+
+    .mode-btn.active[data-mode="insert"] {
+      border-color: var(--cyan);
+      box-shadow: 0 0 18px var(--cyan-glow);
+      background: rgba(56, 189, 248, 0.12);
+    }
+
+    .mode-btn.active[data-mode="visual"] {
+      border-color: var(--amber);
+      box-shadow: 0 0 18px var(--amber-glow);
+      background: rgba(245, 158, 11, 0.12);
+    }
+
+    .mode-key-pill {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      padding: 4px 9px;
+      border-radius: 6px;
+      background: rgba(7, 11, 20, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+
+    .mode-detail-panel {
+      background: #070b14;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 12px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .mini-vim-bar {
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      padding: 8px 12px;
+      border-radius: 6px;
+      display: flex;
+      justify-content: space-between;
+      font-weight: 700;
+    }
+
+    /* MINI KEYBOARD MAP */
+    .keyboard-box {
+      margin-top: 20px;
+      background: #060a12;
+      border: 1px solid rgba(56, 189, 248, 0.2);
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    .kb-title {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .kb-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .kb-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .key {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      min-width: 38px;
+      height: 38px;
+      padding: 0 10px;
+      border-radius: 7px;
+      background: #131c31;
+      border: 1px solid #293654;
+      border-bottom-width: 3px;
+      color: #64748b;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.25s ease;
+      user-select: none;
+    }
+
+    .key.lit-normal {
+      color: #fff;
+      background: rgba(16, 185, 129, 0.22);
+      border-color: var(--emerald);
+      box-shadow: 0 0 12px var(--emerald-glow);
+    }
+
+    .key.lit-insert {
+      color: #fff;
+      background: rgba(56, 189, 248, 0.22);
+      border-color: var(--cyan);
+      box-shadow: 0 0 12px var(--cyan-glow);
+    }
+
+    .key.lit-visual {
+      color: #fff;
+      background: rgba(245, 158, 11, 0.22);
+      border-color: var(--amber);
+      box-shadow: 0 0 12px var(--amber-glow);
+    }
+
+    /* 2. GRAMMAR BUILDER */
+    .grammar-wrapper {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1.3fr;
+      gap: 14px;
+      align-items: center;
+    }
+
+    @media (max-width: 860px) {
+      .grammar-wrapper {
+        grid-template-columns: 1fr;
+      }
+      .grammar-operator {
+        text-align: center;
+      }
+    }
+
+    .grammar-col {
+      background: var(--bg-card);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    .grammar-col h3 {
+      font-size: 0.85rem;
+      font-family: var(--font-mono);
+      color: var(--cyan);
+      margin-bottom: 12px;
+      text-transform: uppercase;
+    }
+
+    .chip-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .chip-btn {
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      padding: 9px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      background: #0a101f;
+      color: var(--text-main);
+      cursor: pointer;
+      text-align: left;
+      transition: 0.2s;
+    }
+
+    .chip-btn:hover {
+      border-color: var(--emerald);
+    }
+
+    .chip-btn.selected {
+      background: rgba(16, 185, 129, 0.18);
+      border-color: var(--emerald);
+      color: #fff;
+      box-shadow: 0 0 14px var(--emerald-glow);
+    }
+
+    .grammar-operator {
+      font-family: var(--font-mono);
+      font-size: 1.6rem;
+      font-weight: 800;
+      color: var(--emerald);
+    }
+
+    .grammar-result {
+      background: #060a12;
+      border: 1px solid var(--emerald);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 0 24px rgba(16, 185, 129, 0.12);
+    }
+
+    .combo-badge {
+      font-family: var(--font-mono);
+      font-size: 1.7rem;
+      font-weight: 800;
+      color: var(--emerald);
+      margin-bottom: 8px;
+    }
+
+    /* 3. INTERACTIVE TERMINAL PLAYGROUND */
+    .terminal-window {
+      background: #050811;
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      border-radius: 12px;
+      overflow: hidden;
+      font-family: var(--font-mono);
+    }
+
+    .terminal-topbar {
+      background: #0f172a;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .dots {
+      display: flex;
+      gap: 7px;
+      align-items: center;
+    }
+
+    .dot {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+    }
+    .dot.r { background: #ef4444; }
+    .dot.y { background: #f59e0b; }
+    .dot.g { background: #10b981; }
+
+    .challenge-tabs {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .ch-tab {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      padding: 5px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      background: #162038;
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+
+    .ch-tab.active {
+      border-color: var(--cyan);
+      color: #fff;
+      background: rgba(56, 189, 248, 0.2);
+    }
+
+    .ch-tab.done {
+      border-color: var(--emerald);
+      color: var(--emerald);
+    }
+
+    .terminal-body {
+      padding: 20px;
+    }
+
+    .challenge-prompt {
+      background: rgba(56, 189, 248, 0.08);
+      border-left: 3px solid var(--cyan);
+      padding: 12px 16px;
+      border-radius: 0 8px 8px 0;
+      margin-bottom: 16px;
+      font-family: var(--font-sans);
+    }
+
+    .challenge-prompt strong {
+      color: var(--cyan);
+    }
+
+    .vim-screen {
+      background: #090e1a;
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      padding: 16px;
+      min-height: 125px;
+      outline: none;
+      cursor: text;
+      position: relative;
+      transition: border-color 0.2s;
+    }
+
+    .vim-screen:focus {
+      border-color: var(--emerald);
+      box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+    }
+
+    .code-line {
+      display: flex;
+      gap: 14px;
+      font-size: 0.98rem;
+      line-height: 1.7;
+      white-space: pre;
+    }
+
+    .line-num {
+      color: #475569;
+      user-select: none;
+      width: 22px;
+      text-align: right;
+    }
+
+    .cursor-normal {
+      background: var(--emerald);
+      color: #050811;
+      font-weight: 700;
+      animation: blink 1s step-end infinite;
+    }
+
+    .cursor-insert {
+      border-left: 2px solid var(--cyan);
+      animation: blink 1s step-end infinite;
+    }
+
+    @keyframes blink {
+      50% { opacity: 0.35; }
+    }
+
+    .vim-statusline {
+      margin-top: 14px;
+      background: #131c31;
+      padding: 7px 12px;
+      border-radius: 6px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.8rem;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .mode-pill {
+      padding: 2px 9px;
+      border-radius: 4px;
+      font-weight: 800;
+      color: #050811;
+    }
+
+    .mode-pill.normal { background: var(--emerald); }
+    .mode-pill.insert { background: var(--cyan); }
+
+    .terminal-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 14px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .btn-action {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      padding: 7px 13px;
+      border-radius: 6px;
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      background: #162038;
+      color: var(--text-main);
+      cursor: pointer;
+    }
+
+    .btn-action:hover {
+      border-color: var(--cyan);
+    }
+
+    .success-banner {
+      display: none;
+      margin-top: 14px;
+      padding: 12px 16px;
+      border-radius: 8px;
+      background: rgba(16, 185, 129, 0.16);
+      border: 1px solid var(--emerald);
+      color: var(--emerald);
+      font-weight: 700;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .success-banner.show {
+      display: flex;
+    }
+
+    /* 4. ROADMAP / CMDCHALLENGE WORKFLOW */
+    .workflow-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+    }
+
+    .wf-card {
+      background: var(--bg-card);
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    .wf-card code {
+      font-family: var(--font-mono);
+      color: var(--emerald);
+      background: rgba(16, 185, 129, 0.12);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.85rem;
+    }
+
+    .wf-card h4 {
+      margin-bottom: 6px;
+      color: #fff;
+      font-size: 0.98rem;
+    }
+
+    .wf-card p {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    footer {
+      text-align: center;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- HEADER -->
+    <header>
+      <div class="badge-top">⚡ DEVOPS &amp; LINUX BLUEPRINT // CMDCHALLENGE + VIM</div>
+      <h1>Aprende VIM de Forma Interactiva y Domina la Terminal</h1>
+      <p>
+        Olvídate de memorizar manuales estáticos. Entrena tu memoria muscular combinando la edición modal de VIM con la metodología de retos y validación en tiempo real de <strong>cmdchallenge.com</strong>.
+      </p>
+      <div class="metrics-bar">
+        <div class="metric-box">
+          <div class="metric-val">80% / 20%</div>
+          <div class="metric-label">Tiempo en Modo Normal vs Inserción</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-val">Verbo + Objeto</div>
+          <div class="metric-label">Gramática componible (ej. <code>ci"</code>, <code>dw</code>)</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-val">0 ms Mouse</div>
+          <div class="metric-label">Edición quirúrgica vía SSH en producción</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-val">vimtutor</div>
+          <div class="metric-label">Entrenamiento nativo incluido en Linux/macOS</div>
+        </div>
+      </div>
+    </header>
+
+    <!-- SECCIÓN 1: ARQUITECTURA MODAL + TECLADO INTERACTIVO -->
+    <section>
+      <div class="section-header">
+        <div class="section-title">
+          <span class="step-num">01</span>
+          <span>Arquitectura Modal y Mapa de Teclado</span>
+        </div>
+        <span style="font-size: 0.85rem; color: var(--text-muted);">Selecciona un modo para iluminar sus teclas clave</span>
+      </div>
+
+      <div class="modes-grid">
+        <div class="mode-tabs">
+          <button class="mode-btn active" data-mode="normal" onclick="selectMode('normal')">
+            <div>
+              <strong>Modo Normal</strong>
+              <div style="font-size: 0.82rem; color: var(--text-muted);">Navegación y ejecución de comandos</div>
+            </div>
+            <span class="mode-key-pill">ESC</span>
+          </button>
+
+          <button class="mode-btn" data-mode="insert" onclick="selectMode('insert')">
+            <div>
+              <strong>Modo Inserción</strong>
+              <div style="font-size: 0.82rem; color: var(--text-muted);">Escritura directa de código o texto</div>
+            </div>
+            <span class="mode-key-pill">i / a / o</span>
+          </button>
+
+          <button class="mode-btn" data-mode="visual" onclick="selectMode('visual')">
+            <div>
+              <strong>Modo Visual</strong>
+              <div style="font-size: 0.82rem; color: var(--text-muted);">Selección por carácter, línea o bloque</div>
+            </div>
+            <span class="mode-key-pill">v / V / Ctrl+v</span>
+          </button>
+        </div>
+
+        <div class="mode-detail-panel" id="modeDetailPanel">
+          <div>
+            <h3 id="modeTitle" style="color: var(--emerald); margin-bottom: 8px;">Modo Normal: El Centro de Control</h3>
+            <p id="modeDesc" style="font-size: 0.92rem; color: var(--text-muted);">
+              Es el estado por defecto de VIM. Aquí cada tecla es una herramienta: puedes saltar entre palabras (<code>w</code>, <code>b</code>), borrar líneas (<code>dd</code>), deshacer cambios (<code>u</code>) o guardar con <code>:wq</code>.
+            </p>
+          </div>
+          <div class="mini-vim-bar" id="modeStatusBar" style="background: rgba(16, 185, 129, 0.16); color: var(--emerald); border: 1px solid var(--emerald);">
+            <span>-- NORMAL --</span>
+            <span>h j k l | w b | d c y u</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- KEYBOARD VISUALIZATION -->
+      <div class="keyboard-box">
+        <div class="kb-title">Teclado Táctico VIM (Teclas activas iluminadas)</div>
+        <div class="kb-rows">
+          <div class="kb-row">
+            <div class="key" data-key="ESC">ESC</div>
+            <div class="key" data-key="Q">Q</div>
+            <div class="key" data-key="W">W</div>
+            <div class="key" data-key="E">E</div>
+            <div class="key" data-key="R">R</div>
+            <div class="key" data-key="T">T</div>
+            <div class="key" data-key="Y">Y</div>
+            <div class="key" data-key="U">U</div>
+            <div class="key" data-key="I">I</div>
+            <div class="key" data-key="O">O</div>
+            <div class="key" data-key="P">P</div>
+          </div>
+          <div class="kb-row">
+            <div class="key" data-key="A">A</div>
+            <div class="key" data-key="S">S</div>
+            <div class="key" data-key="D">D</div>
+            <div class="key" data-key="F">F</div>
+            <div class="key" data-key="G">G</div>
+            <div class="key" data-key="H">H ←</div>
+            <div class="key" data-key="J">J ↓</div>
+            <div class="key" data-key="K">K ↑</div>
+            <div class="key" data-key="L">L →</div>
+            <div class="key" data-key=":">:</div>
+          </div>
+          <div class="kb-row">
+            <div class="key" data-key="CTRL">Ctrl</div>
+            <div class="key" data-key="Z">Z</div>
+            <div class="key" data-key="X">X</div>
+            <div class="key" data-key="C">C</div>
+            <div class="key" data-key="V">V</div>
+            <div class="key" data-key="B">B</div>
+            <div class="key" data-key="N">N</div>
+            <div class="key" data-key="M">M</div>
+            <div class="key" data-key="/">/</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECCIÓN 2: CONSTRUCTOR DE GRAMÁTICA VIM -->
+    <section>
+      <div class="section-header">
+        <div class="section-title">
+          <span class="step-num">02</span>
+          <span>Constructor de Gramática VIM (Verbo + Sustantivo)</span>
+        </div>
+        <span style="font-size: 0.85rem; color: var(--text-muted);">Combina un operador con un alcance para ver su efecto</span>
+      </div>
+
+      <div class="grammar-wrapper">
+        <div class="grammar-col">
+          <h3>1. Operador (Verbo)</h3>
+          <div class="chip-list" id="verbList">
+            <button class="chip-btn selected" data-verb="d" onclick="setVerb('d')"><strong>d</strong> — Delete (Borrar)</button>
+            <button class="chip-btn" data-verb="c" onclick="setVerb('c')"><strong>c</strong> — Change (Cambiar)</button>
+            <button class="chip-btn" data-verb="y" onclick="setVerb('y')"><strong>y</strong> — Yank (Copiar)</button>
+            <button class="chip-btn" data-verb="v" onclick="setVerb('v')"><strong>v</strong> — Visual (Seleccionar)</button>
+          </div>
+        </div>
+
+        <div class="grammar-operator">+</div>
+
+        <div class="grammar-col">
+          <h3>2. Alcance (Sustantivo)</h3>
+          <div class="chip-list" id="nounList">
+            <button class="chip-btn selected" data-noun="w" onclick="setNoun('w')"><strong>w</strong> — Hasta sig. palabra</button>
+            <button class="chip-btn" data-noun='i"' onclick='setNoun("i\"")'><strong>i"</strong> — Dentro de comillas</button>
+            <button class="chip-btn" data-noun="$" onclick="setNoun('$')"><strong>$</strong> — Hasta fin de línea</button>
+            <button class="chip-btn" data-noun="ip" onclick="setNoun('ip')"><strong>ip</strong> — Bloque / párrafo</button>
+          </div>
+        </div>
+
+        <div class="grammar-operator">=</div>
+
+        <div class="grammar-result">
+          <div class="combo-badge" id="comboCode">dw</div>
+          <div id="comboMeaning" style="font-weight: 700; margin-bottom: 6px; color: #fff;">
+            Borra desde el cursor hasta el inicio de la siguiente palabra.
+          </div>
+          <div id="comboExample" style="font-family: var(--font-mono); font-size: 0.82rem; color: var(--cyan); background: #0d1526; padding: 8px 10px; border-radius: 6px;">
+            Ejemplo: "const old_var = 1;" → "const = 1;"
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECCIÓN 3: SIMULADOR INTERACTIVO DE RETOS -->
+    <section>
+      <div class="section-header">
+        <div class="section-title">
+          <span class="step-num">03</span>
+          <span>Simulador Interactivo: Entrenador VIM en Vivo</span>
+        </div>
+        <span style="font-size: 0.85rem; color: var(--emerald);">Haz clic dentro de la terminal y usa tu teclado real</span>
+      </div>
+
+      <div class="terminal-window">
+        <div class="terminal-topbar">
+          <div class="dots">
+            <span class="dot r"></span>
+            <span class="dot y"></span>
+            <span class="dot g"></span>
+            <span style="font-size: 0.8rem; color: var(--text-muted); margin-left: 8px;">vim-challenge@localhost:~</span>
+          </div>
+          <div class="challenge-tabs" id="challengeTabs"></div>
+        </div>
+
+        <div class="terminal-body">
+          <div class="challenge-prompt">
+            <strong id="chTitle">Reto 1:</strong> <span id="chInstruction"></span>
+            <div id="chHint" style="display: none; margin-top: 6px; font-size: 0.85rem; color: var(--amber);"></div>
+          </div>
+
+          <div class="vim-screen" id="vimScreen" tabindex="0"></div>
+
+          <div class="vim-statusline">
+            <div>
+              <span class="mode-pill normal" id="simModeBadge">NORMAL</span>
+              <span style="margin-left: 10px; color: var(--text-muted);">Teclas pulsadas: <strong id="keyLog" style="color: #fff;">-</strong></span>
+            </div>
+            <div style="color: var(--text-muted);">
+              Cursor: <span id="cursorPos">1:1</span> | Movimientos: <strong id="keyCount" style="color: var(--cyan);">0</strong>
+            </div>
+          </div>
+
+          <div class="success-banner" id="successBanner">
+            <span>✅ ¡Reto completado con éxito!</span>
+            <button class="btn-action" style="background: var(--emerald); color: #050811; font-weight: 800; border: none;" onclick="nextChallenge()">Siguiente Reto →</button>
+          </div>
+
+          <div class="terminal-controls">
+            <div style="display: flex; gap: 8px;">
+              <button class="btn-action" onclick="resetChallenge()">↺ Reiniciar Reto</button>
+              <button class="btn-action" onclick="toggleHint()">💡 Ver Pista</button>
+            </div>
+            <span style="font-size: 0.78rem; color: var(--text-muted);">
+              Soporta: <code>h j k l</code>, <code>w</code>, <code>0</code>, <code>$</code>, <code>i</code>, <code>a</code>, <code>A</code>, <code>x</code>, <code>dw</code>, <code>dd</code>, <code>ci"</code>, <code>Esc</code>
+            </span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECCIÓN 4: FLUJO DE APRENDIZAJE CMDCHALLENGE -->
+    <section>
+      <div class="section-header">
+        <div class="section-title">
+          <span class="step-num">04</span>
+          <span>Ruta Práctica: De la Consola a Producción</span>
+        </div>
+      </div>
+
+      <div class="workflow-grid">
+        <div class="wf-card">
+          <h4>1. Retos en cmdchallenge.com</h4>
+          <p>Entrena comandos Linux (<code>grep</code>, <code>awk</code>, <code>sed</code>, tuberías <code>|</code>) con validación automática en cada nivel.</p>
+        </div>
+        <div class="wf-card">
+          <h4>2. Memoria Muscular con vimtutor</h4>
+          <p>Ejecuta <code>vimtutor</code> en tu terminal local durante 15 minutos diarios para automatizar navegación y borrado.</p>
+        </div>
+        <div class="wf-card">
+          <h4>3. Búsqueda y Reemplazo Global</h4>
+          <p>Actualiza puertos o variables en archivos completos en segundos usando <code>:%s/8080/9090/g</code>.</p>
+        </div>
+        <div class="wf-card">
+          <h4>4. Salida Segura en Servidores</h4>
+          <p>Guarda y sal con <code>:wq</code> o <code>ZZ</code>, o descarta cambios accidentales sin miedo usando <code>:q!</code>.</p>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      Infografía Interactiva VIM &amp; Terminal • #Linux #Vim #DevOps #CommandLine #OpenSource
+    </footer>
+  </div>
+
+  <script>
+    /* ==========================================
+       1. MÓDULO DE MODOS Y TECLADO TÁCTIL
+       ========================================== */
+    const modesData = {
+      normal: {
+        title: "Modo Normal: El Centro de Control",
+        desc: "Es el estado por defecto de VIM. Aquí cada tecla es una herramienta: puedes saltar entre palabras (w, b), borrar líneas (dd), deshacer cambios (u) o guardar con :wq.",
+        status: "-- NORMAL --",
+        shortcuts: "h j k l | w b | d c y u :wq",
+        color: "var(--emerald)",
+        bg: "rgba(16, 185, 129, 0.16)",
+        keys: ["ESC", "H", "J", "K", "L", "W", "B", "D", "C", "Y", "U", "X", ":", "/"],
+        litClass: "lit-normal"
+      },
+      insert: {
+        title: "Modo Inserción: Escritura Fluida",
+        desc: "Convierte el buffer en un editor tradicional para escribir código. Entra con 'i' (antes del cursor), 'a' (después del cursor) o 'o' (nueva línea abajo), y vuelve con ESC.",
+        status: "-- INSERT --",
+        shortcuts: "i (insert) | a (append) | o (open line) | ESC (salir)",
+        color: "var(--cyan)",
+        bg: "rgba(56, 189, 248, 0.16)",
+        keys: ["I", "A", "O", "ESC"],
+        litClass: "lit-insert"
+      },
+      visual: {
+        title: "Modo Visual: Selección Quirúrgica",
+        desc: "Permite resaltar texto antes de aplicar una acción. Usa 'v' para caracteres, 'V' para líneas completas o 'Ctrl+v' para editar múltiples columnas a la vez.",
+        status: "-- VISUAL --",
+        shortcuts: "v (carácter) | V (línea) | Ctrl+v (bloque)",
+        color: "var(--amber)",
+        bg: "rgba(245, 158, 11, 0.16)",
+        keys: ["V", "CTRL", "H", "J", "K", "L", "Y", "D"],
+        litClass: "lit-visual"
+      }
+    };
+
+    function selectMode(mode) {
+      document.querySelectorAll(".mode-btn").forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.mode === mode);
+      });
+
+      const data = modesData[mode];
+      const titleEl = document.getElementById("modeTitle");
+      const descEl = document.getElementById("modeDesc");
+      const barEl = document.getElementById("modeStatusBar");
+
+      titleEl.textContent = data.title;
+      titleEl.style.color = data.color;
+      descEl.textContent = data.desc;
+
+      barEl.style.background = data.bg;
+      barEl.style.color = data.color;
+      barEl.style.borderColor = data.color;
+      barEl.innerHTML = `<span>${data.status}</span><span>${data.shortcuts}</span>`;
+
+      document.querySelectorAll(".key").forEach(k => {
+        k.classList.remove("lit-normal", "lit-insert", "lit-visual");
+        if (data.keys.includes(k.dataset.key)) {
+          k.classList.add(data.litClass);
+        }
+      });
+    }
+
+    /* ==========================================
+       2. CONSTRUCTOR DE GRAMÁTICA VIM
+       ========================================== */
+    let currentVerb = "d";
+    let currentNoun = "w";
+
+    const grammarDescriptions = {
+      "dw": {
+        meaning: "Borra desde el cursor hasta el inicio de la siguiente palabra.",
+        example: 'Antes: "const old_var = 1;"  →  Después: "const = 1;"'
+      },
+      'di"': {
+        meaning: "Borra todo el contenido dentro de las comillas sin borrar las comillas.",
+        example: 'Antes: ENV="production"  →  Después: ENV=""'
+      },
+      "d$": {
+        meaning: "Borra desde la posición actual del cursor hasta el final de la línea.",
+        example: 'Antes: port: 8080 # temp  →  Después: port: 8080'
+      },
+      "dip": {
+        meaning: "Elimina por completo el bloque o párrafo de código donde está el cursor.",
+        example: "Elimina un bloque YAML o función completa de un solo golpe."
+      },
+      "cw": {
+        meaning: "Borra la palabra actual y entra automáticamente en Modo Inserción.",
+        example: 'Ideal para renombrar variables rápidamente sin pulsar Esc + i.'
+      },
+      'ci"': {
+        meaning: "Borra el texto dentro de comillas y te deja listo para escribir el nuevo.",
+        example: 'Antes: image: "nginx:1.24"  →  Después: image: "|"'
+      },
+      "c$": {
+        meaning: "Borra hasta el final de la línea y entra en Modo Inserción.",
+        example: "Reemplaza el valor de una variable de entorno al instante."
+      },
+      "cip": {
+        meaning: "Limpia todo el bloque/párrafo actual y entra en Modo Inserción.",
+        example: "Reescribe un bloque completo de configuración en 3 pulsaciones."
+      },
+      "yw": {
+        meaning: "Copia (Yank) desde el cursor hasta el final de la palabra.",
+        example: "Luego pulsa 'p' para pegarla en cualquier otro lugar."
+      },
+      'yi"': {
+        meaning: "Copia exactamente el texto que está dentro de las comillas.",
+        example: 'De token="abc-123" copia únicamente abc-123 al portapapeles VIM.'
+      },
+      "y$": {
+        meaning: "Copia desde el cursor hasta el final de la línea actual.",
+        example: "Útil para duplicar rutas o parámetros largos."
+      },
+      "yip": {
+        meaning: "Copia todo el bloque o párrafo de código sin seleccionarlo con mouse.",
+        example: "Copia un servicio completo en docker-compose.yml y pégalo con 'p'."
+      },
+      "vw": {
+        meaning: "Selecciona visualmente desde el cursor hasta la siguiente palabra.",
+        example: "Permite verificar el rango exacto antes de aplicar 'd', 'y' o '~'."
+      },
+      'vi"': {
+        meaning: "Resalta en Modo Visual todo el texto contenido entre comillas.",
+        example: 'Selecciona "us-east-1" dejando las comillas intactas.'
+      },
+      "v$": {
+        meaning: "Selecciona visualmente hasta el final de la línea actual.",
+        example: "Muestra el bloque resaltado antes de cortarlo o copiarlo."
+      },
+      "vip": {
+        meaning: "Selecciona visualmente todo el bloque o párrafo interno actual.",
+        example: "Perfecto para indentar todo un bloque con '>'."
+      }
+    };
+
+    function setVerb(v) {
+      currentVerb = v;
+      document.querySelectorAll("#verbList .chip-btn").forEach(b => {
+        b.classList.toggle("selected", b.dataset.verb === v);
+      });
+      updateGrammar();
+    }
+
+    function setNoun(n) {
+      currentNoun = n;
+      document.querySelectorAll("#nounList .chip-btn").forEach(b => {
+        b.classList.toggle("selected", b.dataset.noun === n);
+      });
+      updateGrammar();
+    }
+
+    function updateGrammar() {
+      const combo = currentVerb + currentNoun;
+      const info = grammarDescriptions[combo];
+      document.getElementById("comboCode").textContent = combo;
+      document.getElementById("comboMeaning").textContent = info.meaning;
+      document.getElementById("comboExample").textContent = info.example;
+    }
+
+    /* ==========================================
+       3. SIMULADOR INTERACTIVO DE RETOS VIM
+       ========================================== */
+    const challenges = [
+      {
+        title: "Reto 1: Borrar palabra sobrante (dw)",
+        instruction: "Sitúa el cursor sobre 'broken ' y bórrala usando dw (o x) para dejar el estado activo.",
+        hint: "Pulsa 'w' hasta llegar a la palabra 'broken' y luego escribe 'dw'.",
+        lines: ["const status = 'broken active';"],
+        target: ["const status = 'active';"],
+        cursor: { line: 0, col: 0 }
+      },
+      {
+        title: "Reto 2: Cambiar texto entre comillas (ci\")",
+        instruction: "Cambia \"staging\" por \"production\" usando ci\" y luego pulsa Esc.",
+        hint: "Con el cursor en cualquier parte de la línea, escribe ci\" seguido de production y pulsa Esc.",
+        lines: ['const env = "staging";'],
+        target: ['const env = "production";'],
+        cursor: { line: 0, col: 13 }
+      },
+      {
+        title: "Reto 3: Eliminar línea duplicada (dd)",
+        instruction: "Elimina la segunda línea duplicada 'replicas: 1' usando dd.",
+        hint: "Baja a la segunda línea con 'j' y pulsa 'dd' para eliminarla por completo.",
+        lines: [
+          "spec:",
+          "  replicas: 1",
+          "  replicas: 1",
+          "  image: nginx:alpine"
+        ],
+        target: [
+          "spec:",
+          "  replicas: 1",
+          "  image: nginx:alpine"
+        ],
+        cursor: { line: 0, col: 0 }
+      },
+      {
+        title: "Reto 4: Añadir punto y coma al final (A;)",
+        instruction: "Salta al final de la línea y añade ';' usando A; y luego pulsa Esc.",
+        hint: "En Modo Normal pulsa 'A' (mayúscula) para insertar al final de la línea, escribe ';' y pulsa Esc.",
+        lines: ["let serverPort = 8080"],
+        target: ["let serverPort = 8080;"],
+        cursor: { line: 0, col: 4 }
+      }
+    ];
+
+    let currentChallengeIdx = 0;
+    let completedChallenges = new Set();
+    let vimState = {
+      mode: "NORMAL",
+      lines: [],
+      cursor: { line: 0, col: 0 },
+      pendingKeys: "",
+      keyCount: 0,
+      lastKeys: []
+    };
+
+    function renderChallengeTabs() {
+      const tabsEl = document.getElementById("challengeTabs");
+      tabsEl.innerHTML = "";
+      challenges.forEach((ch, idx) => {
+        const btn = document.createElement("button");
+        btn.className = "ch-tab" +
+          (idx === currentChallengeIdx ? " active" : "") +
+          (completedChallenges.has(idx) ? " done" : "");
+        btn.textContent = (completedChallenges.has(idx) ? "✓ " : "") + `Reto ${idx + 1}`;
+        btn.onclick = () => loadChallenge(idx);
+        tabsEl.appendChild(btn);
+      });
+    }
+
+    function loadChallenge(idx) {
+      currentChallengeIdx = idx;
+      const ch = challenges[idx];
+      vimState = {
+        mode: "NORMAL",
+        lines: [...ch.lines],
+        cursor: { ...ch.cursor },
+        pendingKeys: "",
+        keyCount: 0,
+        lastKeys: []
+      };
+
+      document.getElementById("chTitle").textContent = ch.title + " — ";
+      document.getElementById("chInstruction").textContent = ch.instruction;
+      const hintEl = document.getElementById("chHint");
+      hintEl.textContent = "💡 Pista: " + ch.hint;
+      hintEl.style.display = "none";
+      document.getElementById("successBanner").classList.remove("show");
+
+      renderChallengeTabs();
+      renderVimScreen();
+      document.getElementById("vimScreen").focus();
+    }
+
+    function resetChallenge() {
+      loadChallenge(currentChallengeIdx);
+    }
+
+    function nextChallenge() {
+      const next = (currentChallengeIdx + 1) % challenges.length;
+      loadChallenge(next);
+    }
+
+    function toggleHint() {
+      const hintEl = document.getElementById("chHint");
+      hintEl.style.display = hintEl.style.display === "none" ? "block" : "none";
+    }
+
+    function renderVimScreen() {
+      const screen = document.getElementById("vimScreen");
+      screen.innerHTML = "";
+
+      vimState.lines.forEach((lineText, lineIdx) => {
+        const row = document.createElement("div");
+        row.className = "code-line";
+
+        const num = document.createElement("span");
+        num.className = "line-num";
+        num.textContent = lineIdx + 1;
+        row.appendChild(num);
+
+        const content = document.createElement("span");
+        if (lineIdx === vimState.cursor.line) {
+          const col = Math.min(vimState.cursor.col, lineText.length);
+          const before = escapeHtml(lineText.slice(0, col));
+          const currentChar = lineText[col] ? escapeHtml(lineText[col]) : " ";
+          const after = escapeHtml(lineText.slice(col + 1));
+
+          if (vimState.mode === "NORMAL") {
+            content.innerHTML = `${before}<span class="cursor-normal">${currentChar}</span>${after}`;
+          } else {
+            const rest = lineText[col] ? currentChar + after : " ";
+            content.innerHTML = `${before}<span class="cursor-insert"></span>${rest}`;
+          }
+        } else {
+          content.textContent = lineText;
+        }
+
+        row.appendChild(content);
+        screen.appendChild(row);
+      });
+
+      const badge = document.getElementById("simModeBadge");
+      badge.textContent = vimState.mode;
+      badge.className = "mode-pill " + vimState.mode.toLowerCase();
+
+      document.getElementById("cursorPos").textContent = `${vimState.cursor.line + 1}:${vimState.cursor.col + 1}`;
+      document.getElementById("keyCount").textContent = vimState.keyCount;
+      document.getElementById("keyLog").textContent = vimState.lastKeys.slice(-6).join(" ") || "-";
+
+      checkChallengeCompletion();
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    function checkChallengeCompletion() {
+      const ch = challenges[currentChallengeIdx];
+      const isMatch =
+        vimState.lines.length === ch.target.length &&
+        vimState.lines.every((val, i) => val === ch.target[i]);
+
+      if (isMatch && vimState.mode === "NORMAL") {
+        completedChallenges.add(currentChallengeIdx);
+        document.getElementById("successBanner").classList.add("show");
+        renderChallengeTabs();
+      }
+    }
+
+    document.getElementById("vimScreen").addEventListener("keydown", (e) => {
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", " "].includes(e.key)) {
+        e.preventDefault();
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      const key = e.key;
+      let line = vimState.lines[vimState.cursor.line];
+
+      if (vimState.mode === "INSERT") {
+        if (key === "Escape") {
+          vimState.mode = "NORMAL";
+          vimState.cursor.col = Math.max(0, vimState.cursor.col - 1);
+          recordKey("ESC");
+        } else if (key === "Backspace") {
+          if (vimState.cursor.col > 0) {
+            vimState.lines[vimState.cursor.line] =
+              line.slice(0, vimState.cursor.col - 1) + line.slice(vimState.cursor.col);
+            vimState.cursor.col--;
+            recordKey("BS");
+          }
+        } else if (key.length === 1) {
+          vimState.lines[vimState.cursor.line] =
+            line.slice(0, vimState.cursor.col) + key + line.slice(vimState.cursor.col);
+          vimState.cursor.col++;
+          recordKey(key);
+        }
+        renderVimScreen();
+        return;
+      }
+
+      // NORMAL MODE
+      if (key === "Escape") {
+        vimState.pendingKeys = "";
+        recordKey("ESC");
+        renderVimScreen();
+        return;
+      }
+
+      if (key.length !== 1) return;
+
+      vimState.pendingKeys += key;
+      const seq = vimState.pendingKeys;
+
+      // Multi-key sequences
+      if (seq === "d" || seq === "c" || seq === "ci") {
+        recordKey(key);
+        renderVimScreen();
+        return;
+      }
+
+      if (seq === "dd") {
+        if (vimState.lines.length > 1) {
+          vimState.lines.splice(vimState.cursor.line, 1);
+          vimState.cursor.line = Math.min(vimState.cursor.line, vimState.lines.length - 1);
+          vimState.cursor.col = 0;
+        } else {
+          vimState.lines[0] = "";
+          vimState.cursor.col = 0;
+        }
+        vimState.pendingKeys = "";
+        recordKey("dd");
+        renderVimScreen();
+        return;
+      }
+
+      if (seq === "dw") {
+        const rest = line.slice(vimState.cursor.col);
+        const match = rest.match(/^(\w+\s*|\s+|[^\w\s]+\s*)/);
+        if (match) {
+          vimState.lines[vimState.cursor.line] =
+            line.slice(0, vimState.cursor.col) + rest.slice(match[0].length);
+        }
+        vimState.pendingKeys = "";
+        recordKey("dw");
+        renderVimScreen();
+        return;
+      }
+
+      if (seq === 'ci"') {
+        const firstQ = line.indexOf('"');
+        const secondQ = line.indexOf('"', firstQ + 1);
+        if (firstQ !== -1 && secondQ !== -1) {
+          vimState.lines[vimState.cursor.line] =
+            line.slice(0, firstQ + 1) + line.slice(secondQ);
+          vimState.cursor.col = firstQ + 1;
+          vimState.mode = "INSERT";
+        }
+        vimState.pendingKeys = "";
+        recordKey('ci"');
+        renderVimScreen();
+        return;
+      }
+
+      // Single-key Normal commands
+      vimState.pendingKeys = "";
+      switch (key) {
+        case "h":
+          vimState.cursor.col = Math.max(0, vimState.cursor.col - 1);
+          recordKey("h");
+          break;
+        case "l":
+          vimState.cursor.col = Math.min(Math.max(0, line.length - 1), vimState.cursor.col + 1);
+          recordKey("l");
+          break;
+        case "j":
+          if (vimState.cursor.line < vimState.lines.length - 1) {
+            vimState.cursor.line++;
+            vimState.cursor.col = Math.min(
+              Math.max(0, vimState.lines[vimState.cursor.line].length - 1),
+              vimState.cursor.col
+            );
+          }
+          recordKey("j");
+          break;
+        case "k":
+          if (vimState.cursor.line > 0) {
+            vimState.cursor.line--;
+            vimState.cursor.col = Math.min(
+              Math.max(0, vimState.lines[vimState.cursor.line].length - 1),
+              vimState.cursor.col
+            );
+          }
+          recordKey("k");
+          break;
+        case "w": {
+          const rest = line.slice(vimState.cursor.col);
+          const m = rest.match(/^(\w+\s*|[^\w\s]+\s*|\s+)/);
+          if (m && vimState.cursor.col + m[0].length < line.length) {
+            vimState.cursor.col += m[0].length;
+          }
+          recordKey("w");
+          break;
+        }
+        case "0":
+          vimState.cursor.col = 0;
+          recordKey("0");
+          break;
+        case "$":
+          vimState.cursor.col = Math.max(0, line.length - 1);
+          recordKey("$");
+          break;
+        case "x":
+          if (line.length > 0) {
+            vimState.lines[vimState.cursor.line] =
+              line.slice(0, vimState.cursor.col) + line.slice(vimState.cursor.col + 1);
+            vimState.cursor.col = Math.min(
+              vimState.cursor.col,
+              Math.max(0, vimState.lines[vimState.cursor.line].length - 1)
+            );
+          }
+          recordKey("x");
+          break;
+        case "i":
+          vimState.mode = "INSERT";
+          recordKey("i");
+          break;
+        case "a":
+          vimState.mode = "INSERT";
+          vimState.cursor.col = Math.min(line.length, vimState.cursor.col + 1);
+          recordKey("a");
+          break;
+        case "A":
+          vimState.mode = "INSERT";
+          vimState.cursor.col = line.length;
+          recordKey("A");
+          break;
+      }
+
+      renderVimScreen();
+    });
+
+    function recordKey(k) {
+      vimState.keyCount++;
+      vimState.lastKeys.push(k);
+    }
+
+    // Inicializar estado al cargar
+    selectMode("normal");
+    updateGrammar();
+    loadChallenge(0);
+  </script>
+</body>
+</html>
